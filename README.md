@@ -68,10 +68,10 @@ Until set up, people still get the resource on the page; only the email copy is 
 1. hPanel -> **Websites** -> your site -> **Node.js** (Node.js Web App). Choose Node **22.13+** (24 is fine).
 2. Upload this project (GitHub import or a zip **without** `node_modules`, `dist` and `data`).
 3. Build command `npm install && npm run build`. Start command `npm start`. Entry file `dist/server/entry.mjs`.
-4. Add environment variables: `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_PATH`, `DB_PATH`, `HOST=0.0.0.0`, `RESEND_API_KEY`,
+4. Add environment variables: `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_PATH`, `HOST=0.0.0.0`, `RESEND_API_KEY`,
    `EMAIL_FROM`. (`PORT` is normally supplied by Hostinger; if the panel asks, use the port it shows.)
-5. **`DB_PATH` must be outside the app folder**, e.g. `/home/<user>/nafay-data/nafay.sqlite`, so redeploys never
-   wipe the database. Back that file up (hPanel backups or copy it down regularly): it holds posts, images,
+5. **The database creates itself** in `~/nafay-data/nafay.sqlite` (outside the app folder, so redeploys never
+   wipe it). `DB_PATH` is optional and only needed to choose another location. Back that file up (hPanel backups or copy it down regularly): it holds posts, images,
    resource files and subscribers.
 6. Open `https://nafay3d.com/` (homepage must look exactly as before), then `https://nafay3d.com/<ADMIN_PATH>/`.
 

@@ -1,11 +1,12 @@
 // Thin wrapper over SQLite, using the sqlite module built into Node 22.13+ (no native add-ons to compile,
-// which matters on shared hosting). The whole database is ONE file, set by DB_PATH (default ./data/nafay.sqlite).
+// which matters on shared hosting). The whole database is ONE file, set by DB_PATH (default: ~/nafay-data/nafay.sqlite in production, ./data/nafay.sqlite in development).
 // On Hostinger put it OUTSIDE the app folder (e.g. /home/<user>/nafay-data/nafay.sqlite) so redeploys never touch it.
 // The functions stay async so the modules that call them did not have to change.
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
 
 export type Arg = string | number | null | ArrayBuffer | Uint8Array;
 
@@ -201,7 +202,9 @@ const SCHEMA = [
 
 function open(): DatabaseSync {
   if (conn) return conn;
-  const file = resolve(process.env.DB_PATH || './data/nafay.sqlite');
+  // No setup needed: in production the file goes to ~/nafay-data (outside the app, so redeploys keep it).
+  const fallback = import.meta.env.PROD ? resolve(homedir(), 'nafay-data', 'nafay.sqlite') : './data/nafay.sqlite';
+  const file = resolve(process.env.DB_PATH || fallback);
   mkdirSync(dirname(file), { recursive: true });
   const d = new DatabaseSync(file);
   d.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL;');

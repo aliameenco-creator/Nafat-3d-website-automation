@@ -1,0 +1,217 @@
+---
+import '../../styles/global.css';
+import '../../styles/admin.css';
+import { site } from '../../data/site';
+import { hasAnyAdmin, signIn, startSession } from '../../lib/server/auth';
+
+export const prerender = false;
+
+// Only dashboard paths are allowed as the post-login destination.
+const base = Astro.locals.admin;
+const rawNext = Astro.url.searchParams.get('next') ?? `${base}/`;
+const next = rawNext.startsWith(`${base}/`) && !rawNext.startsWith('//') ? rawNext : `${base}/`;
+
+if (Astro.locals.user) return Astro.redirect(next);
+
+let error = '';
+let email = '';
+let setupNeeded = false;
+
+try {
+  setupNeeded = !(await hasAnyAdmin());
+  if (Astro.request.method === 'POST') {
+    const form = await Astro.request.formData();
+    email = String(form.get('email') ?? '').slice(0, 200);
+    const password = String(form.get('password') ?? '').slice(0, 200);
+    const remember = form.get('remember') === 'on';
+    const ip = Astro.request.headers.get('cf-connecting-ip') || Astro.clientAddress || 'unknown';
+    const result = await signIn(email, password, ip);
+    if (result.ok) {
+      await startSession(Astro.cookies, result.user.id, remember, Astro.request.headers.get('user-agent') ?? '');
+      return Astro.redirect(next, 303);
+    }
+    error = result.error;
+    Astro.response.status = 401;
+  }
+} catch (e) {
+  console.error(e);
+  error = `The database is not reachable: ${(e as Error).message}`;
+  Astro.response.status = 503;
+}
+Astro.response.headers.set('Cache-Control', 'no-store');
+Astro.response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+Astro.response.headers.set('X-Frame-Options', 'DENY');
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Sign in · {site.name}</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta name="theme-color" content="#f4f5fa" />
+    <script is:inline>
+      try {
+        if (localStorage.getItem('theme') === 'light') document.documentElement.dataset.theme = 'light';
+      } catch (e) {}
+    </script>
+  </head>
+  <body class="admin login">
+    <div class="glow" aria-hidden="true"></div>
+    <main class="wrapper">
+      <a href="/" class="mark">{site.name}</a>
+
+      <div class="card">
+        <p class="eyebrow">Studio</p>
+        <h1>Welcome <em>back</em></h1>
+        <p class="muted intro">Sign in to write, edit and publish on your site.</p>
+
+        {error && <div class="notice bad" role="alert">{error}</div>}
+        {
+          setupNeeded && !error && (
+            <div class="notice">
+              No admin account exists yet. Set <code>ADMIN_EMAIL</code> and <code>ADMIN_PASSWORD</code> in your environment
+              variables, then sign in with them here. That creates the first admin.
+            </div>
+          )
+        }
+
+        <form method="post" class="form">
+          <label class="field">
+            <span>Email</span>
+            <input type="email" name="email" autocomplete="username" required autofocus value={email} />
+          </label>
+          <label class="field">
+            <span>Password</span>
+            <div class="pw">
+              <input type="password" name="password" autocomplete="current-password" required minlength="1" />
+              <button type="button" class="reveal" aria-label="Show password">Show</button>
+            </div>
+          </label>
+          <label class="switch remember">
+            <input type="checkbox" name="remember" checked />
+            Keep me signed in for 30 days
+          </label>
+          <button class="b primary submit" type="submit">Sign in</button>
+        </form>
+      </div>
+
+      <p class="foot muted">
+        <a href="/">← Back to {site.url.replace(/^https?:\/\//, '')}</a>
+      </p>
+    </main>
+
+    <script>
+      const btn = document.querySelector<HTMLButtonElement>('.reveal')!;
+      const input = document.querySelector<HTMLInputElement>('input[name=password]')!;
+      btn.addEventListener('click', () => {
+        const show = input.type === 'password';
+        input.type = show ? 'text' : 'password';
+        btn.textContent = show ? 'Hide' : 'Show';
+        btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      });
+      document.querySelector('form')!.addEventListener('submit', (e) => {
+        const b = (e.currentTarget as HTMLFormElement).querySelector<HTMLButtonElement>('.submit')!;
+        b.disabled = true;
+        b.textContent = 'Signing in…';
+      });
+    </script>
+
+    <style>
+      body.login {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        position: relative;
+        overflow: hidden;
+      }
+      .glow {
+        position: fixed;
+        width: 720px;
+        height: 720px;
+        left: 50%;
+        top: -360px;
+        transform: translateX(-50%);
+        background: radial-gradient(circle, color-mix(in srgb, var(--accent) 16%, transparent), transparent 62%);
+        pointer-events: none;
+      }
+      .wrapper {
+        position: relative;
+        width: 100%;
+        max-width: 420px;
+        padding: 40px 16px;
+      }
+      .mark {
+        display: block;
+        text-align: center;
+        font-family: var(--serif);
+        font-size: 1.6rem;
+        text-decoration: none;
+        margin-bottom: 28px;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 32px 28px 28px;
+        box-shadow: 0 30px 80px -40px rgb(0 0 0 / 0.6);
+      }
+      h1 {
+        font-size: 2.6rem;
+        margin-bottom: 8px;
+      }
+      .intro {
+        margin-bottom: 24px;
+      }
+      .form {
+        margin-top: 8px;
+      }
+      .pw {
+        position: relative;
+      }
+      .pw input {
+        padding-right: 64px !important;
+      }
+      .reveal {
+        position: absolute;
+        right: 6px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: 0;
+        color: var(--muted);
+        font: inherit;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 6px 8px;
+        border-radius: 6px;
+      }
+      .reveal:hover {
+        color: var(--text);
+      }
+      .remember {
+        margin: 4px 0 22px;
+        color: var(--muted);
+      }
+      .submit {
+        width: 100%;
+        height: 46px;
+        font-size: 0.98rem;
+      }
+      .foot {
+        text-align: center;
+        font-size: 0.85rem;
+        margin-top: 24px;
+      }
+      .foot a {
+        text-decoration: none;
+      }
+      .foot a:hover {
+        color: var(--text);
+      }
+    </style>
+  </body>
+</html>

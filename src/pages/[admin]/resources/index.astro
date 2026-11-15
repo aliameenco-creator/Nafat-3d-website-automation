@@ -1,0 +1,206 @@
+---
+import { siteOrigin } from '../../../lib/origin';
+import Admin from '../../../layouts/Admin.astro';
+import { coverOf, kindLabel, listResources, resourceCounts, resourceState, resourceStats, type ListOptions } from '../../../lib/server/resources';
+
+export const prerender = false;
+
+const base = Astro.locals.admin;
+const q = Astro.url.searchParams;
+const states = ['all', 'published', 'scheduled', 'draft'] as const;
+const state = (states as readonly string[]).includes(q.get('state') ?? '') ? (q.get('state') as ListOptions['state']) : 'all';
+const search = q.get('q')?.trim() ?? '';
+const page = Math.max(1, Number(q.get('page')) || 1);
+const per = 25;
+
+const [counts, { resources, total }] = await Promise.all([
+  resourceCounts(),
+  listResources({ state, search, limit: per, offset: (page - 1) * per }),
+]);
+const stats = await resourceStats(resources.map((r) => r.id));
+const countFor = { all: counts.published + counts.scheduled + counts.draft, ...counts };
+const pages = Math.ceil(total / per);
+const origin = siteOrigin(Astro.url);
+
+const link = (o: Record<string, string | number | undefined>) => {
+  const p = new URLSearchParams();
+  const merged = { state, q: search, ...o };
+  for (const [k, v] of Object.entries(merged)) if (v && !(k === 'state' && v === 'all') && !(k === 'page' && v === 1)) p.set(k, String(v));
+  const s = p.toString();
+  return `${base}/resources/${s ? `?${s}` : ''}`;
+};
+const fmt = (ms: number | null) => (ms ? new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
+---
+
+<Admin title="Resources">
+  <div class="page-head">
+    <div>
+      <h1>Resources</h1>
+      <p>Free prompts, templates, links and files. Visitors give their name and email to unlock them.</p>
+    </div>
+    <a class="b accent" href={`${base}/resources/new/`}><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg>New resource</a>
+  </div>
+
+  <div class="toolbar">
+    <nav class="tabs" aria-label="Filter by status">
+      {
+        states.map((s) => (
+          <a href={link({ state: s, page: 1 })} aria-current={state === s ? 'true' : undefined}>
+            {s === 'all' ? 'All' : s[0].toUpperCase() + s.slice(1)}
+            <span>{countFor[s]}</span>
+          </a>
+        ))
+      }
+    </nav>
+    <form class="search" method="get">
+      {state !== 'all' && <input type="hidden" name="state" value={state} />}
+      <input class="input" type="search" name="q" value={search} placeholder="Search or paste a YouTube link…" aria-label="Search resources" />
+    </form>
+  </div>
+
+  <section class="panel" style="padding:8px 8px 4px">
+    {
+      resources.length ? (
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Resource</th>
+              <th class="hide-sm">Status</th>
+              <th class="hide-sm">Date</th>
+              <th class="hide-sm num">Views</th>
+              <th class="num">Unlocked</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {resources.map((r) => {
+              const st = resourceState(r);
+              const s = stats.get(r.id)!;
+              const img = coverOf(r);
+              return (
+                <tr>
+                  <td>
+                    <div style="display:flex;gap:12px;align-items:center;min-width:0">
+                      {img ? <img class="thumb" src={img} alt="" loading="lazy" /> : <span class="thumb" />}
+                      <div style="min-width:0">
+                        <a class="r-title" href={`${base}/resources/${r.id}/`}>
+                          {r.title}
+                        </a>
+                        <div class="muted r-sub">
+                          <span class="kind">{kindLabel(r.kind)}</span> · <span class="mono">/r/{r.slug}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="hide-sm">
+                    <span class={`badge ${st}`}>{st}</span>
+                  </td>
+                  <td class="hide-sm muted" style="white-space:nowrap">{fmt(r.publishedAt ?? r.updatedAt)}</td>
+                  <td class="hide-sm num muted">{s.views}</td>
+                  <td class="num">
+                    <a href={`${base}/subscribers/?resource=${r.id}`} title="See who unlocked it">{s.unlocks}</a>
+                  </td>
+                  <td class="num">
+                    <button class="b sm ghost" type="button" data-copy={`${origin}/r/${r.slug}`} title="Copy the link for YouTube">
+                      Copy link
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      ) : (
+        <div class="empty">
+          <h3>{search ? 'Nothing matches' : 'No resources yet'}</h3>
+          <p>{search ? 'Try a different search.' : 'Add the prompt, template or file from your next video, or ask Claude to do it.'}</p>
+        </div>
+      )
+    }
+  </section>
+
+  {
+    pages > 1 && (
+      <nav class="pager">
+        {page > 1 && <a class="b sm" href={link({ page: page - 1 })}>← Newer</a>}
+        <span class="muted">Page {page} of {pages}</span>
+        {page < pages && <a class="b sm" href={link({ page: page + 1 })}>Older →</a>}
+      </nav>
+    )
+  }
+
+  <section class="panel" style="margin-top:16px">
+    <h2>How people find them</h2>
+    <ul class="howto muted">
+      <li>Each resource has a short link like <code>{origin}/r/its-name</code>. Put it in the YouTube description: it keeps working when you rename the video.</li>
+      <li>Everything is listed on <a href="/resources/" target="_blank" rel="noopener">/resources</a>, where visitors can search by topic or paste a video's link.</li>
+      <li>A blog post that shows the same YouTube video gets a sign-up card for the resource automatically. To place one anywhere else, put the resource's link on its own line in a post.</li>
+    </ul>
+  </section>
+</Admin>
+
+<script>
+  import { copy } from '../../../scripts/admin';
+  document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((b) => b.addEventListener('click', () => copy(b.dataset.copy!, 'Link copied')));
+</script>
+
+<style>
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .search .input {
+    width: 260px;
+    height: 38px;
+    border-radius: 999px;
+    padding: 0 16px;
+  }
+  .r-title {
+    font-weight: 500;
+    text-decoration: none;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: min(46ch, 52vw);
+  }
+  .r-title:hover {
+    text-decoration: underline;
+  }
+  .r-sub {
+    font-size: 0.75rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: min(46ch, 52vw);
+  }
+  .kind {
+    color: var(--accent-ink);
+    font-weight: 600;
+  }
+  @media (max-width: 759px) {
+    .table .thumb {
+      display: none;
+    }
+  }
+  .pager {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    align-items: center;
+    margin-top: 20px;
+    font-size: 0.88rem;
+  }
+  .howto {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 0.9rem;
+  }
+  .howto li + li {
+    margin-top: 6px;
+  }
+</style>

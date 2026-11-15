@@ -1,0 +1,692 @@
+---
+import { siteOrigin } from '../../lib/origin';
+// The resource screen: title, public description, the locked content (prompts go in Prompt blocks), a link,
+// files, the video it came from, and the short link for the YouTube description. Drafts autosave; published
+// resources only change when you press Update.
+import { KINDS, fileSize, resourceState, type Resource, type ResourceFile, type ResourceStats } from '../../lib/server/resources';
+
+interface Props {
+  resource: Resource | null;
+  files?: ResourceFile[];
+  stats?: ResourceStats | null;
+}
+const { resource, files = [], stats = null } = Astro.props;
+const base = Astro.locals.admin;
+const state = resource ? resourceState(resource) : 'draft';
+const host = Astro.url.host;
+// Escape < so content containing </script> cannot break out of the JSON block.
+const data = JSON.stringify({ resource, files: files.map((f) => ({ ...f, size: fileSize(f.size) })) }).replace(/</g, '\\u003c');
+const rate = stats && stats.views ? `${Math.round((stats.unlocks / stats.views) * 100)}%` : '—';
+---
+
+<div class="editor" data-origin={siteOrigin(Astro.url)}>
+  <header class="topbar">
+    <a class="b sm ghost" href={`${base}/resources/`}>← Resources</a>
+    <span class={`badge ${state}`} id="state">{state}</span>
+    <span class="muted savestate" id="savestate">{resource ? 'All changes saved' : 'New resource'}</span>
+    <div class="spacer"></div>
+    <a class="b sm" id="view-live" href="#" target="_blank" rel="noopener" hidden>View live</a>
+    <button class="b sm" id="save" type="button">Save draft</button>
+    <button class="b sm accent" id="publish" type="button">Publish</button>
+  </header>
+
+  <div class="layout">
+    <section class="main">
+      <textarea id="title" class="title" rows="1" placeholder="Resource title" aria-label="Title" maxlength="160"></textarea>
+      <div class="slugline">
+        <span class="muted">{host}/resources/</span>
+        <input id="slug" class="slug" aria-label="URL slug" placeholder="resource-url" spellcheck="false" maxlength="80" />
+        <span class="muted">/</span>
+      </div>
+      <textarea
+        id="summary"
+        class="excerpt"
+        rows="2"
+        maxlength="300"
+        aria-label="Description"
+        placeholder="Public description: what it is and why it helps. Shown on the card and above the sign-up form."></textarea>
+
+      <div class="writer">
+        <div class="writer-bar">
+          <div class="mode" role="tablist">
+            <button type="button" role="tab" aria-selected="true" data-mode="write">Write</button>
+            <button type="button" role="tab" aria-selected="false" data-mode="preview">Preview</button>
+          </div>
+          <div class="tools" aria-label="Formatting">
+            <button type="button" data-md="prompt" title="Wrap the selection in a Prompt block (gets a Copy button)" class="wide">+ Prompt block</button>
+            <button type="button" data-md="h2" title="Heading">H2</button>
+            <button type="button" data-md="bold" title="Bold (Ctrl+B)"><b>B</b></button>
+            <button type="button" data-md="link" title="Link (Ctrl+K)">
+              <svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"></path></svg>
+            </button>
+            <button type="button" data-md="ul" title="Bullet list">
+              <svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"></path></svg>
+            </button>
+            <button type="button" data-md="ol" title="Numbered list">1.</button>
+          </div>
+        </div>
+        <textarea
+          id="content"
+          class="content-input"
+          aria-label="Locked content"
+          placeholder="Only people who sign up see this. Paste your prompt, select it and press “+ Prompt block” so it gets a Copy button. Add notes on how to use it under it."></textarea>
+        <article id="preview" class="preview prose res-content" data-label="Prompt" hidden></article>
+        <div class="writer-foot muted"><span>Locked: visitors see this after giving their name and email</span></div>
+      </div>
+    </section>
+
+    <aside class="sidebar">
+      <section class="panel" id="share" hidden>
+        <h2>Link for YouTube</h2>
+        <div class="codebox"><code id="short"></code><button class="b sm" type="button" id="copy-short">Copy</button></div>
+        <p class="hint" style="margin:8px 0 12px">
+          Put this in the video description. It keeps working when you rename the video or this resource.
+        </p>
+        <button class="b sm" type="button" id="copy-desc">Copy description line</button>
+      </section>
+
+      <section class="panel">
+        <h2>Publishing</h2>
+        <label class="field">
+          <span>Type</span>
+          <select id="kind">{Object.entries(KINDS).map(([k, label]) => <option value={k}>{label}</option>)}</select>
+        </label>
+        <label class="field">
+          <span>Date <small id="date-hint">The video's date. Empty = when you publish</small></span>
+          <input type="datetime-local" id="publishedAt" />
+        </label>
+        <label class="field" style="margin-bottom:0">
+          <span>Tags <small>Comma separated</small></span>
+          <input id="tags" placeholder="chatgpt, seo, n8n" />
+        </label>
+      </section>
+
+      <section class="panel">
+        <h2>Video</h2>
+        <label class="field">
+          <span>YouTube link</span>
+          <input id="videoUrl" placeholder="https://youtu.be/…" spellcheck="false" />
+        </label>
+        <img id="video-thumb" class="video-thumb" alt="" hidden />
+        <label class="field" style="margin-bottom:8px">
+          <span>Video title <small>Kept for search after renames</small></span>
+          <input id="videoTitle" maxlength="200" />
+        </label>
+        <p class="hint" style="margin:0">Blog posts that show this video get a sign-up card for this resource automatically.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Link</h2>
+        <label class="field">
+          <span>URL <small>Google Drive, Notion, GitHub…</small></span>
+          <input id="linkUrl" placeholder="https://drive.google.com/…" spellcheck="false" />
+        </label>
+        <label class="field" style="margin-bottom:0">
+          <span>Button text <small>Optional</small></span>
+          <input id="linkLabel" maxlength="60" placeholder="Open the Google Drive folder" />
+        </label>
+      </section>
+
+      <section class="panel">
+        <h2>Files</h2>
+        <ul class="flist" id="files"></ul>
+        <div class="fdrop" id="fdrop" role="button" tabindex="0">
+          <span>Drop files here or <u>browse</u></span>
+          <small class="muted">Up to 20 MB each: PDF, ZIP, JSON, DOCX, CSV…</small>
+        </div>
+        <input type="file" id="file-input" multiple hidden />
+        <div class="progress" id="progress" hidden><span></span></div>
+      </section>
+
+      <section class="panel">
+        <h2>Cover image</h2>
+        <p class="hint" style="margin:0 0 10px">Optional. Without one, the video's thumbnail is used.</p>
+        <div class="drop" id="cover-drop">
+          <img id="cover-img" alt="" hidden />
+          <div class="drop-empty" id="cover-empty">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-5-5L5 21"></path></svg>
+            <span>Drop an image or <u>browse</u></span>
+          </div>
+          <input type="file" id="cover-file" accept="image/*" hidden />
+        </div>
+        <div class="cover-actions" id="cover-actions" hidden>
+          <button class="b sm danger" type="button" id="cover-remove">Remove</button>
+        </div>
+        <details class="url-in">
+          <summary class="muted">Use an image URL instead</summary>
+          <input class="input" id="coverImage" placeholder="https://… or /media/…" />
+        </details>
+      </section>
+
+      <section class="panel">
+        <h2>Search</h2>
+        <label class="field" style="margin-bottom:0">
+          <span>Extra keywords <small>Old video titles, other names</small></span>
+          <textarea id="keywords" rows="2" maxlength="500" placeholder="e.g. the title the video had at launch"></textarea>
+        </label>
+      </section>
+
+      {
+        stats && (
+          <section class="panel">
+            <h2>Results</h2>
+            <div class="mini-stats">
+              <div>
+                <b>{stats.views}</b>
+                <span>page views</span>
+              </div>
+              <div>
+                <b>{stats.unlocks}</b>
+                <span>people unlocked it</span>
+              </div>
+              <div>
+                <b>{stats.signups}</b>
+                <span>joined the list here</span>
+              </div>
+              <div>
+                <b>{rate}</b>
+                <span>of visitors unlocked</span>
+              </div>
+            </div>
+            <a class="b sm" style="margin-top:12px" href={`${base}/subscribers/?resource=${resource!.id}`}>
+              See who unlocked it
+            </a>
+          </section>
+        )
+      }
+
+      <section class="panel" id="danger" hidden>
+        <h2>More</h2>
+        <div class="danger-row" style="margin:0;padding:0;border:0">
+          <button class="b sm" type="button" id="unpublish" hidden>Unpublish</button>
+          <button class="b sm danger" type="button" id="delete">Delete</button>
+        </div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script type="application/json" id="resource-data" set:html={data} />
+
+<script>
+  import { adminUrl, api, confirmDialog, copy, timeAgo, toast, uploadImage } from '../../scripts/admin';
+
+  type Res = Record<string, any>;
+  const $ = <T extends HTMLElement = HTMLInputElement>(id: string) => document.getElementById(id) as T;
+  const origin = document.querySelector<HTMLElement>('.editor')!.dataset.origin!;
+
+  const initial = JSON.parse($('resource-data').textContent || '{}');
+  let res: Res | null = initial.resource;
+  let files: Res[] = initial.files ?? [];
+  let dirty = false;
+  let saving = false;
+  let slugTouched = Boolean(res);
+  let lastSaved = res ? Date.now() : 0;
+
+  const fields = ['title', 'slug', 'summary', 'content', 'linkUrl', 'linkLabel', 'videoTitle', 'coverImage', 'keywords', 'kind'];
+  const title = $<HTMLTextAreaElement>('title');
+  const content = $<HTMLTextAreaElement>('content');
+  const slug = $('slug');
+
+  // ---------- Load ----------
+  const toLocal = (ms: number) => {
+    const d = new Date(ms);
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  };
+  if (res) {
+    for (const f of fields) $(f).value = res[f] ?? '';
+    $('tags').value = (res.tags ?? []).join(', ');
+    $('videoUrl').value = res.videoId ? `https://youtu.be/${res.videoId}` : '';
+    if (res.publishedAt) $('publishedAt').value = toLocal(res.publishedAt);
+  }
+
+  // ---------- Collect ----------
+  const slugify = (s: string) =>
+    s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/['’]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+
+  function collect(): Res {
+    const out: Res = {};
+    for (const f of fields) out[f] = $(f).value.trim() || null;
+    out.title = title.value.trim();
+    out.summary = $('summary').value.trim();
+    out.content = content.value;
+    out.keywords = $('keywords').value.trim();
+    out.videoUrl = $('videoUrl').value.trim() || null;
+    out.tags = $('tags').value.split(',').map((t) => t.trim()).filter(Boolean);
+    const d = $('publishedAt').value;
+    out.publishedAt = d ? new Date(d).toISOString() : null;
+    if (!out.slug) out.slug = slugify(out.title);
+    return out;
+  }
+
+  // ---------- State + buttons ----------
+  function currentState() {
+    if (!res || res.status !== 'published') return 'draft';
+    return res.publishedAt > Date.now() ? 'scheduled' : 'published';
+  }
+
+  function refresh() {
+    const st = currentState();
+    $('state').textContent = st;
+    $('state').className = `badge ${st}`;
+    const d = $('publishedAt').value;
+    const future = d && new Date(d).getTime() > Date.now();
+    const live = st !== 'draft';
+    $('publish').textContent = live ? 'Update' : future ? 'Schedule' : 'Publish';
+    $('save').hidden = live;
+    $('unpublish').hidden = !live;
+    $('danger').hidden = !res;
+    $('share').hidden = !res;
+    $('view-live').hidden = st !== 'published';
+    if (res) {
+      ($('view-live') as unknown as HTMLAnchorElement).href = `/resources/${res.slug}/`;
+      $('short').textContent = `${origin}/r/${res.slug}`;
+    }
+    $('date-hint').textContent = future ? 'Scheduled: goes live at this time' : "The video's date. Empty = when you publish";
+  }
+
+  function showSaveState() {
+    const el = $('savestate');
+    if (saving) el.textContent = 'Saving…';
+    else if (dirty) el.textContent = currentState() === 'draft' ? 'Unsaved changes' : 'Unsaved changes — press Update to go live';
+    else if (lastSaved) el.textContent = `Saved ${timeAgo(lastSaved)}`;
+  }
+  setInterval(showSaveState, 30_000);
+
+  // ---------- Save ----------
+  async function save(extra: Res = {}, quiet = false) {
+    const data = { ...collect(), ...extra };
+    if (!data.title) {
+      if (!quiet) {
+        toast('Give the resource a title first.', true);
+        title.focus();
+      }
+      return false;
+    }
+    saving = true;
+    showSaveState();
+    try {
+      const out = res ? await api(`/api/admin/resources/${res.id}`, 'PATCH', data) : await api('/api/admin/resources', 'POST', data);
+      const wasNew = !res;
+      res = out.resource;
+      slug.value = res!.slug;
+      if (res!.publishedAt) $('publishedAt').value = toLocal(res!.publishedAt);
+      if (res!.videoTitle && !$('videoTitle').value) $('videoTitle').value = res!.videoTitle;
+      if (wasNew) history.replaceState(null, '', adminUrl(`/resources/${res!.id}/`));
+      dirty = false;
+      lastSaved = Date.now();
+      if (!quiet) toast(extra.status === 'published' ? (currentState() === 'scheduled' ? 'Scheduled' : 'Published') : 'Saved');
+      return true;
+    } catch (e) {
+      toast((e as Error).message, true);
+      return false;
+    } finally {
+      saving = false;
+      refresh();
+      showSaveState();
+    }
+  }
+
+  $('save').addEventListener('click', () => save({ status: 'draft' }));
+  $('publish').addEventListener('click', async () => {
+    if (currentState() === 'draft') {
+      const d = $('publishedAt').value;
+      const future = d && new Date(d).getTime() > Date.now();
+      const message = future ? `Schedule this resource for ${new Date(d).toLocaleString()}?` : 'Publish this resource now? It goes live on your Resources page.';
+      if (!(await confirmDialog(message, future ? 'Schedule' : 'Publish', false))) return;
+    }
+    await save({ status: 'published' });
+  });
+  $('unpublish').addEventListener('click', async () => {
+    if (await confirmDialog('Take this resource off the site? Its links stop working until you publish it again.', 'Unpublish')) save({ status: 'draft' });
+  });
+  $('delete').addEventListener('click', async () => {
+    if (!res || !(await confirmDialog('Delete this resource and its files for good? Links to it will stop working. Who unlocked it stays in your subscribers’ history.', 'Delete'))) return;
+    await api(`/api/admin/resources/${res.id}`, 'DELETE');
+    dirty = false;
+    location.href = adminUrl('/resources/');
+  });
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      save(currentState() === 'draft' ? { status: 'draft' } : {});
+    }
+  });
+  window.addEventListener('beforeunload', (e) => {
+    if (dirty) e.preventDefault();
+  });
+
+  // Drafts save themselves a few seconds after you stop typing. Live resources never do.
+  let autosaveTimer = 0;
+  function changed() {
+    dirty = true;
+    showSaveState();
+    clearTimeout(autosaveTimer);
+    if (currentState() === 'draft' && title.value.trim()) autosaveTimer = window.setTimeout(() => dirty && save({}, true), 4000);
+  }
+  document.querySelectorAll('.editor input, .editor textarea, .editor select').forEach((el) => {
+    if ((el as HTMLInputElement).type !== 'file') el.addEventListener('input', changed);
+  });
+  $('publishedAt').addEventListener('input', refresh);
+
+  // ---------- Title + slug ----------
+  const grow = (el: HTMLTextAreaElement) => {
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  };
+  title.addEventListener('input', () => {
+    grow(title);
+    if (!slugTouched) slug.value = slugify(title.value);
+  });
+  title.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      $('summary').focus();
+    }
+  });
+  slug.addEventListener('input', () => (slugTouched = true));
+  slug.addEventListener('blur', () => (slug.value = slugify(slug.value)));
+  requestAnimationFrame(() => grow(title));
+
+  // ---------- Toolbar ----------
+  function wrap(before: string, after = before, placeholder = '') {
+    const { selectionStart: s, selectionEnd: e, value } = content;
+    const sel = value.slice(s, e) || placeholder;
+    content.setRangeText(before + sel + after, s, e, 'end');
+    if (!value.slice(s, e)) content.setSelectionRange(s + before.length, s + before.length + sel.length);
+    content.focus();
+    changed();
+  }
+  function linePrefix(prefix: string | ((i: number) => string)) {
+    const { selectionStart: s, selectionEnd: e, value } = content;
+    const start = value.lastIndexOf('\n', s - 1) + 1;
+    const end = value.indexOf('\n', e) === -1 ? value.length : value.indexOf('\n', e);
+    const lines = value.slice(start, end).split('\n');
+    const out = lines.map((l, i) => (typeof prefix === 'function' ? prefix(i) : prefix) + l.replace(/^(#{1,6}\s|>\s|-\s|\d+\.\s)/, '')).join('\n');
+    content.setRangeText(out, start, end, 'end');
+    content.focus();
+    changed();
+  }
+  const actions: Record<string, () => void> = {
+    // A fenced block on its own lines; the page gives it a Copy button.
+    prompt: () => {
+      const { selectionStart: s, value } = content;
+      const before = s > 0 && value[s - 1] !== '\n' ? '\n\n' : s > 1 && value[s - 2] !== '\n' ? '\n' : '';
+      wrap(`${before}\`\`\`\n`, '\n```\n\n', 'Paste the prompt here');
+    },
+    h2: () => linePrefix('## '),
+    bold: () => wrap('**', '**', 'bold text'),
+    link: () => {
+      const url = prompt('Link URL', 'https://');
+      if (url) wrap('[', `](${url})`, 'link text');
+    },
+    ul: () => linePrefix('- '),
+    ol: () => linePrefix((i) => `${i + 1}. `),
+  };
+  document.querySelectorAll<HTMLButtonElement>('[data-md]').forEach((b) => b.addEventListener('click', () => actions[b.dataset.md!]()));
+  content.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const k = e.key.toLowerCase();
+    if (k === 'b' || k === 'k') {
+      e.preventDefault();
+      actions[k === 'b' ? 'bold' : 'link']();
+    }
+  });
+
+  // ---------- Write / preview ----------
+  const preview = $('preview');
+  document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const mode = b.dataset.mode!;
+      document.querySelectorAll('[data-mode]').forEach((o) => o.setAttribute('aria-selected', String(o === b)));
+      content.hidden = mode !== 'write';
+      preview.hidden = mode !== 'preview';
+      document.querySelector('.tools')!.classList.toggle('off', mode !== 'write');
+      if (mode === 'preview') {
+        try {
+          const out = await api('/api/admin/resources/preview', 'POST', { content: content.value });
+          preview.innerHTML = out.html || '<p class="muted">Nothing here yet.</p>';
+        } catch (e) {
+          toast((e as Error).message, true);
+        }
+      }
+    }),
+  );
+
+  // ---------- Video ----------
+  const videoUrl = $('videoUrl');
+  const thumb = $<HTMLImageElement>('video-thumb');
+  const showThumb = (id: string | null) => {
+    thumb.hidden = !id;
+    if (id) thumb.src = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+  };
+  showThumb(res?.videoId ?? null);
+  videoUrl.addEventListener('change', async () => {
+    const url = videoUrl.value.trim();
+    if (!url) {
+      showThumb(null);
+      $('videoTitle').value = '';
+      return;
+    }
+    try {
+      const v = await api(`/api/admin/video?url=${encodeURIComponent(url)}`);
+      showThumb(v.id);
+      if (v.title) $('videoTitle').value = v.title;
+      changed();
+    } catch (e) {
+      toast((e as Error).message, true);
+    }
+  });
+
+  // ---------- Files ----------
+  const list = $('files');
+  const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+  function renderFiles() {
+    list.innerHTML = files
+      .map((f) => `<li data-id="${f.id}"><a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.filename)}</a><span class="muted">${esc(String(f.size))}</span><button type="button" class="b sm ghost" aria-label="Remove ${esc(f.filename)}">✕</button></li>`)
+      .join('');
+    list.querySelectorAll<HTMLButtonElement>('button').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const id = b.closest('li')!.dataset.id!;
+        if (!(await confirmDialog('Remove this file? People who unlocked the resource will no longer see it.', 'Remove'))) return;
+        try {
+          await api(`/api/admin/resources/${res!.id}/files?file=${id}`, 'DELETE');
+          files = files.filter((f) => f.id !== id);
+          renderFiles();
+          toast('File removed');
+        } catch (e) {
+          toast((e as Error).message, true);
+        }
+      }),
+    );
+  }
+  renderFiles();
+
+  const bar = $('progress');
+  function upload(file: File): Promise<Res> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const form = new FormData();
+      form.append('file', file);
+      xhr.open('POST', `/api/admin/resources/${res!.id}/files`);
+      xhr.upload.onprogress = (e) => e.lengthComputable && bar.style.setProperty('--p', `${Math.round((e.loaded / e.total) * 100)}%`);
+      xhr.onload = () => {
+        const data = JSON.parse(xhr.responseText || '{}');
+        xhr.status < 300 ? resolve(data.file) : reject(new Error(data.error || `Upload failed (${xhr.status})`));
+      };
+      xhr.onerror = () => reject(new Error('Upload failed. Check your connection.'));
+      xhr.send(form);
+    });
+  }
+  async function addFiles(picked: FileList | File[]) {
+    // Files belong to a saved resource, so a new one is saved as a draft first.
+    if (!res && !(await save({ status: 'draft' }))) return;
+    for (const f of Array.from(picked)) {
+      if (f.size > 20 * 1024 * 1024) {
+        toast(`${f.name} is over 20 MB. Share it with a Google Drive link instead.`, true);
+        continue;
+      }
+      bar.hidden = false;
+      bar.style.setProperty('--p', '0%');
+      try {
+        const saved = await upload(f);
+        const kb = saved.size >= 1e6 ? `${(saved.size / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(saved.size / 1e3))} KB`;
+        files.push({ ...saved, size: kb });
+        renderFiles();
+        toast(`${f.name} uploaded`);
+      } catch (e) {
+        toast(`${f.name}: ${(e as Error).message}`, true);
+      }
+    }
+    bar.hidden = true;
+  }
+  const fileInput = $('file-input');
+  const fdrop = $('fdrop');
+  fdrop.addEventListener('click', () => fileInput.click());
+  fdrop.addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && fileInput.click());
+  fileInput.addEventListener('change', () => fileInput.files && addFiles(fileInput.files).then(() => (fileInput.value = '')));
+  fdrop.addEventListener('dragover', (e) => (e.preventDefault(), fdrop.classList.add('over')));
+  fdrop.addEventListener('dragleave', () => fdrop.classList.remove('over'));
+  fdrop.addEventListener('drop', (e) => {
+    e.preventDefault();
+    fdrop.classList.remove('over');
+    if (e.dataTransfer?.files.length) addFiles(e.dataTransfer.files);
+  });
+
+  // ---------- Cover ----------
+  const coverInput = $('coverImage');
+  function showCover() {
+    const url = coverInput.value.trim();
+    const img = $<HTMLImageElement>('cover-img');
+    img.hidden = !url;
+    if (url) img.src = url;
+    $('cover-empty').hidden = Boolean(url);
+    $('cover-actions').hidden = !url;
+  }
+  const coverFile = $('cover-file');
+  const drop = $('cover-drop');
+  drop.addEventListener('click', () => !coverInput.value && coverFile.click());
+  coverFile.addEventListener('change', async () => {
+    const f = coverFile.files?.[0];
+    if (!f) return;
+    try {
+      coverInput.value = (await uploadImage(f, title.value)).url;
+      showCover();
+      changed();
+    } catch (e) {
+      toast((e as Error).message, true);
+    }
+  });
+  drop.addEventListener('dragover', (e) => (e.preventDefault(), drop.classList.add('over')));
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    drop.classList.remove('over');
+    const f = e.dataTransfer?.files[0];
+    if (!f) return;
+    try {
+      coverInput.value = (await uploadImage(f, title.value)).url;
+      showCover();
+      changed();
+    } catch (err) {
+      toast((err as Error).message, true);
+    }
+  });
+  $('cover-remove').addEventListener('click', () => {
+    coverInput.value = '';
+    showCover();
+    changed();
+  });
+  coverInput.addEventListener('input', showCover);
+
+  // ---------- Share ----------
+  $('copy-short').addEventListener('click', () => copy($('short').textContent!, 'Link copied'));
+  $('copy-desc').addEventListener('click', () => {
+    const word = ($('kind') as unknown as HTMLSelectElement).selectedOptions[0].textContent!.toLowerCase();
+    copy(`🎁 Get the free ${word} from this video: ${$('short').textContent}`, 'Description line copied');
+  });
+
+  // ---------- Go ----------
+  showCover();
+  refresh();
+  if (!res) title.focus();
+</script>
+
+<style>
+  .tools .wide {
+    padding: 0 10px;
+    color: var(--accent-ink);
+  }
+  .video-thumb {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    border-radius: 10px;
+    margin: -4px 0 14px;
+    background: var(--bg-soft);
+  }
+  .flist {
+    list-style: none;
+    margin: 0 0 10px;
+    padding: 0;
+  }
+  .flist :global(li) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-top: 1px solid var(--line);
+    font-size: 0.85rem;
+  }
+  .flist :global(li:first-child) {
+    border-top: 0;
+  }
+  .flist :global(a) {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .flist :global(.muted) {
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+  .fdrop {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 18px 12px;
+    border: 1px dashed var(--line-strong);
+    border-radius: 10px;
+    background: var(--field);
+    font-size: 0.85rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .fdrop:hover,
+  .fdrop.over {
+    border-color: var(--accent);
+  }
+  .fdrop small {
+    font-size: 0.75rem;
+  }
+  .progress {
+    --p: 0%;
+    height: 6px;
+    margin-top: 10px;
+    border-radius: 999px;
+    background: var(--bg-soft);
+    overflow: hidden;
+  }
+  .progress span {
+    display: block;
+    width: var(--p);
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.2s;
+  }
+</style>

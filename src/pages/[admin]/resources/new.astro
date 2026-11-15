@@ -1,0 +1,10 @@
+---
+import Admin from '../../../layouts/Admin.astro';
+import ResourceEditor from '../../../components/admin/ResourceEditor.astro';
+
+export const prerender = false;
+---
+
+<Admin title="New resource" bare>
+  <ResourceEditor resource={null} />
+</Admin>

@@ -1,0 +1,124 @@
+---
+import { site, youtube } from '../data/site';
+
+// Plain files in public/logos (44px WebP) rather than <Image>, because this footer also renders on
+// blog pages built per request, where Astro's image resizing service is not available.
+const chatgpt = '/logos/chatgpt.webp';
+const gemini = '/logos/gemini.webp';
+const grok = '/logos/grok.webp';
+const perplexity = '/logos/perplexity.webp';
+
+// The question each AI opens with, so visitors can see what it finds about Nafay 3D.
+const prompt = `Who is Nafay 3D (${site.url}, YouTube ${youtube.handle})? What do they make, what are they known for, and where can I learn from them?`;
+const q = encodeURIComponent(prompt);
+
+// Gemini can't take a question in its link, so its button copies the prompt first.
+const models = [
+  // mono: white logos that need to turn black on the light theme.
+  { name: 'ChatGPT', url: `https://chatgpt.com/?q=${q}`, logo: chatgpt, mono: true },
+  { name: 'Claude', url: `https://claude.ai/new?q=${q}` },
+  { name: 'Gemini', url: 'https://gemini.google.com/app', logo: gemini, copy: true },
+  { name: 'Perplexity', url: `https://www.perplexity.ai/search?q=${q}`, logo: perplexity, mono: true },
+  { name: 'Grok', url: `https://grok.com/?q=${q}`, logo: grok, mono: true },
+];
+---
+
+<div class="ask-ai">
+  <p class="label">Ask AI about Ali</p>
+  <ul>
+    {
+      models.map((m) => (
+        <li>
+          <a
+            href={m.url}
+            target="_blank"
+            rel="noopener"
+            title={m.copy ? `Copy the question and open ${m.name}` : `Ask ${m.name} who Nafay 3D is`}
+            data-copy={m.copy ? prompt : undefined}
+          >
+            {m.logo ? (
+              <img src={m.logo} class={m.mono ? 'mono' : undefined} alt="" width="22" height="22" loading="lazy" decoding="async" />
+            ) : (
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                <g fill="#d97757">
+                  {[0, 30, 60, 90, 120, 150].map((r) => (
+                    <rect x="11" y="2" width="2" height="20" rx="1" transform={`rotate(${r} 12 12)`} />
+                  ))}
+                </g>
+              </svg>
+            )}
+            <span>{m.name}</span>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+  <p class="note" role="status" aria-live="polite"></p>
+</div>
+
+<script>
+  document.querySelectorAll<HTMLAnchorElement>('.ask-ai a[data-copy]').forEach((a) => {
+    a.addEventListener('click', () => {
+      const note = a.closest('.ask-ai')?.querySelector('.note');
+      navigator.clipboard?.writeText(a.dataset.copy ?? '').then(
+        () => note && (note.textContent = 'Question copied. Paste it into Gemini.'),
+        () => {}
+      );
+    });
+  });
+</script>
+
+<style>
+  .ask-ai {
+    margin-top: 28px;
+  }
+  .label {
+    font-size: 0.82rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+  ul {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0;
+    margin: 0;
+  }
+  a {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--text);
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: border-color 0.15s, background 0.15s, transform 0.15s;
+  }
+  a:hover {
+    border-color: var(--text);
+    background: var(--bg-soft);
+    transform: translateY(-2px);
+  }
+  a :global(img),
+  a svg {
+    width: 18px;
+    height: 18px;
+    border-radius: 6px;
+    object-fit: contain;
+  }
+  :global([data-theme='light']) .mono {
+    filter: invert(1);
+  }
+  .note {
+    min-height: 1.2em;
+    margin-top: 10px;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+</style>

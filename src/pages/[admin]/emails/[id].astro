@@ -1,0 +1,23 @@
+---
+import Admin from '../../../layouts/Admin.astro';
+import BroadcastEditor from '../../../components/admin/BroadcastEditor.astro';
+import { audienceOptions, failures, getBroadcast } from '../../../lib/server/broadcasts';
+import { emailSettings } from '../../../lib/server/email';
+import { liveResources } from '../../../lib/server/resources';
+
+export const prerender = false;
+
+const broadcast = await getBroadcast(Astro.params.id!);
+if (!broadcast) return Astro.redirect(`${Astro.locals.admin}/emails/`);
+const [audiences, resources, failed] = await Promise.all([audienceOptions(), liveResources({ limit: 200 }), failures(broadcast.id)]);
+---
+
+<Admin title={broadcast.subject || 'New email'} bare>
+  <BroadcastEditor
+    broadcast={broadcast}
+    audiences={audiences}
+    resources={resources.map((r) => ({ slug: r.slug, title: r.title }))}
+    failures={failed}
+    ready={Boolean(emailSettings())}
+  />
+</Admin>

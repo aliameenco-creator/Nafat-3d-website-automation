@@ -1,0 +1,72 @@
+---
+import { site, nav, youtube } from '../data/site';
+import AskAi from './AskAi.astro';
+const year = new Date().getFullYear();
+---
+
+<footer class="footer">
+  <div class="wrap cols">
+    <div>
+      <p class="name">{site.name}</p>
+      <p class="muted">{site.description}</p>
+      <AskAi />
+    </div>
+    <div>
+      <p class="eyebrow">Site</p>
+      <ul>
+        {nav.map((n) => <li><a href={n.href}>{n.label}</a></li>)}
+        <li><a href={youtube.url} rel="noopener">YouTube</a></li>
+        <li><a href="/privacy/">Privacy</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="wrap base muted">© {year} {site.name}</div>
+</footer>
+<style>
+  .footer {
+    border-top: 1px solid var(--line);
+    padding: 56px 0 28px;
+    font-size: 0.95rem;
+  }
+  .cols {
+    display: grid;
+    gap: 32px;
+    grid-template-columns: 1fr;
+  }
+  .cols > :first-child {
+    grid-column: 1 / -1;
+    max-width: 420px;
+  }
+  @media (min-width: 720px) {
+    .cols {
+      grid-template-columns: 2fr 1fr;
+    }
+    .cols > :first-child {
+      grid-column: auto;
+    }
+  }
+  .name {
+    font-family: var(--serif);
+    font-size: 1.6rem;
+    margin-bottom: 8px;
+  }
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  li {
+    padding: 4px 0;
+  }
+  li a {
+    text-decoration: none;
+    color: var(--muted);
+  }
+  li a:hover {
+    color: var(--text);
+  }
+  .base {
+    margin-top: 48px;
+    font-size: 0.85rem;
+  }
+</style>

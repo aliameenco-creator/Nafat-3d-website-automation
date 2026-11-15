@@ -1,0 +1,149 @@
+---
+import Admin from '../../../layouts/Admin.astro';
+import { audienceLabel, listBroadcasts } from '../../../lib/server/broadcasts';
+import { emailSettings } from '../../../lib/server/email';
+import { subscriberCounts } from '../../../lib/server/subscribers';
+
+export const prerender = false;
+
+const base = Astro.locals.admin;
+const [broadcasts, counts] = await Promise.all([listBroadcasts(), subscriberCounts()]);
+const audiences = await Promise.all(broadcasts.map((b) => audienceLabel(b.audience)));
+const settings = emailSettings();
+const fmt = (ms: number | null) => (ms ? new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
+---
+
+<Admin title="Emails">
+  <div class="page-head">
+    <div>
+      <h1>Emails</h1>
+      <p>Write an email and send it to your {counts.subscribed.toLocaleString()} subscriber{counts.subscribed === 1 ? '' : 's'}, or to the people who got one resource.</p>
+    </div>
+    <button class="b accent" type="button" id="new"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg>New email</button>
+  </div>
+
+  <section class="panel" style="padding:8px 8px 4px">
+    {
+      broadcasts.length ? (
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th class="hide-sm">To</th>
+              <th class="hide-sm">Date</th>
+              <th class="num">Sent</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {broadcasts.map((b, i) => (
+              <tr>
+                <td>
+                  <a class="b-title" href={`${base}/emails/${b.id}/`}>
+                    {b.subject || '(no subject yet)'}
+                  </a>
+                </td>
+                <td class="hide-sm muted"><span class="b-to" title={audiences[i]}>{audiences[i]}</span></td>
+                <td class="hide-sm muted" style="white-space:nowrap">{fmt(b.startedAt ?? b.updatedAt)}</td>
+                <td class="num muted">
+                  {b.status === 'draft' ? '—' : `${b.sent}/${b.total}`}
+                  {b.failed > 0 && <span style="color:var(--bad)"> · {b.failed} failed</span>}
+                </td>
+                <td>
+                  <span class={`badge ${b.status}`}>{b.status === 'sending' ? 'paused' : b.status}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <div class="empty">
+          <h3>No emails yet</h3>
+          <p>Announce a new video, share a free resource, or point people to the AI Brief.</p>
+        </div>
+      )
+    }
+  </section>
+
+  <section class="panel" id="setup" style="margin-top:16px">
+    <div class="panel-head">
+      <h2>Sending setup</h2>
+      <span class={`badge ${settings ? 'published' : 'trash'}`}>{settings ? 'on' : 'off'}</span>
+    </div>
+    {
+      settings ? (
+        <p class="muted" style="margin:0">
+          Emails go out through Resend from <b style="color:var(--text)">{settings.from}</b>. Replies come to your inbox. People get
+          their resource by email as soon as they sign up, and every email has a one-click unsubscribe link.
+        </p>
+      ) : (
+        <div class="muted setup">
+          <p>
+            Sending is off, so new subscribers only get their resource on the page. To turn it on (the free plan covers 3,000 emails a
+            month, 100 a day):
+          </p>
+          <ol>
+            <li>Create a free account at <a href="https://resend.com" target="_blank" rel="noopener">resend.com</a>.</li>
+            <li>
+              Under <b>Domains</b>, add your domain (nafay3d.com) and add the DNS records it shows in Hostinger (hPanel → Domains → DNS / Nameservers). Emails from a
+              domain you own reach inboxes, not spam.
+            </li>
+            <li>Under <b>API Keys</b>, create a key with "Sending access".</li>
+            <li>
+              In Hostinger → your Node.js app → Environment variables, add <code>RESEND_API_KEY</code> (the key) and
+              <code>EMAIL_FROM</code>, e.g. <code>Nafay 3D &lt;hello@nafay3d.com&gt;</code>. Then come back here and send yourself a test.
+            </li>
+          </ol>
+        </div>
+      )
+    }
+  </section>
+</Admin>
+
+<script>
+  import { adminUrl, api, toast } from '../../../scripts/admin';
+  document.getElementById('new')!.addEventListener('click', async () => {
+    try {
+      const { broadcast } = await api('/api/admin/broadcasts', 'POST', {});
+      location.href = adminUrl(`/emails/${broadcast.id}/`);
+    } catch (e) {
+      toast((e as Error).message, true);
+    }
+  });
+</script>
+
+<style>
+  .b-title {
+    font-weight: 500;
+    text-decoration: none;
+    display: block;
+    max-width: min(52ch, 60vw);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .b-title:hover {
+    text-decoration: underline;
+  }
+  .b-to {
+    display: block;
+    max-width: 24ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .setup p {
+    margin: 0 0 10px;
+  }
+  .setup ol {
+    margin: 0;
+    padding-left: 20px;
+  }
+  .setup li + li {
+    margin-top: 6px;
+  }
+  .setup a,
+  .setup b {
+    color: var(--text);
+  }
+</style>

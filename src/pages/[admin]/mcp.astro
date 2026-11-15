@@ -1,0 +1,178 @@
+---
+import { siteOrigin } from '../../lib/origin';
+import Admin from '../../layouts/Admin.astro';
+import { listApiTokens } from '../../lib/server/auth';
+
+export const prerender = false;
+
+const tokens = await listApiTokens();
+const endpoint = new URL('/api/mcp', siteOrigin(Astro.url)).href;
+const fmt = (ms: number | null) => (ms ? new Date(ms).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : 'Never');
+const examples = [
+  'Write a blog post about how to start with AI automation as a complete beginner. Save it as a draft.',
+  'List my drafts and run an SEO audit on the newest one, then fix what fails.',
+  'Turn the transcript in ./video.txt into a blog post with a good meta title and description.',
+  'Publish the post about AI jobs next Monday at 9am Pakistan time.',
+  'Turn the prompts in ./prompts.md into a free resource for https://youtu.be/… and give me the link for the description.',
+  'How many people joined my email list this week, and which resource brought in the most?',
+];
+const tools = [
+  ['blog_overview', 'Counts, recent posts and tags'],
+  ['list_posts', 'Find posts by status, text or tag'],
+  ['get_post', 'Read a post with all its SEO fields'],
+  ['create_post', 'Write a new post (draft by default)'],
+  ['update_post', 'Edit, publish, schedule or unpublish'],
+  ['seo_audit', 'Score a post and list what to fix'],
+  ['upload_image', 'Put an image on the site from a URL or file'],
+  ['list_images', 'See images already uploaded'],
+  ['delete_post / restore_post', 'Move to trash and back'],
+  ['list_resources / get_resource', 'Find free resources and their stats'],
+  ['create_resource / update_resource', 'Add or edit a prompt, template or guide'],
+  ['attach_file', 'Add a downloadable file to a resource'],
+  ['delete_resource', 'Remove a resource for good'],
+  ['audience_overview', 'Subscriber counts and newest sign-ups'],
+];
+---
+
+<Admin title="Claude / MCP">
+  <div class="page-head">
+    <div>
+      <h1>Claude / MCP</h1>
+      <p>Connect Claude Code to your blog so it can write, edit and publish posts for you.</p>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <section class="panel">
+        <h2>1. Create a connection key</h2>
+        <form id="create" class="create">
+          <input class="input" name="name" placeholder="Name it, e.g. My laptop" maxlength="60" required />
+          <button class="b primary" type="submit">Create key</button>
+        </form>
+
+        <div id="result" hidden>
+          <div class="notice" style="margin-top:16px">Copy this now. For your security it will not be shown again.</div>
+          <p class="label">Your key</p>
+          <div class="codebox"><code id="token"></code><button class="b sm" data-copy="token">Copy</button></div>
+          <p class="label" style="margin-top:18px">2a. Claude Code: run this once in your terminal</p>
+          <div class="codebox"><code id="cmd"></code><button class="b sm" data-copy="cmd">Copy</button></div>
+          <p class="hint" style="margin-top:8px">
+            <code>--scope user</code> makes the blog available in every Claude Code project. Then type <code>/mcp</code> in Claude
+            Code to check it says <b>connected</b>.
+          </p>
+          <p class="label" style="margin-top:18px">2b. Claude.ai connector (also used by scheduled tasks)</p>
+          <div class="codebox"><code id="connector"></code><button class="b sm" data-copy="connector">Copy</button></div>
+          <p class="hint" style="margin-top:8px">
+            In Claude, open Settings → Connectors → Add custom connector and paste this as the URL. The key is inside it, so
+            keep it private. Revoking the key also disables this URL.
+          </p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Active keys</h2>
+          <span class="muted" style="font-size:0.8rem">{tokens.length}</span>
+        </div>
+        {
+          tokens.length ? (
+            <ul class="rows">
+              {tokens.map((t) => (
+                <li data-id={t.id}>
+                  <div class="grow">
+                    <span class="title">{t.name}</span>
+                    <span class="sub">
+                      <span class="mono">{t.prefix}…</span> · created {fmt(t.created_at)} · last used {fmt(t.last_used_at)}
+                    </span>
+                  </div>
+                  <button class="b sm danger revoke">Revoke</button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p class="muted" style="margin:0">No keys yet. Create one above.</p>
+          )
+        }
+      </section>
+    </div>
+
+    <div>
+      <section class="panel">
+        <h2>Server address</h2>
+        <div class="codebox"><code id="endpoint">{endpoint}</code><button class="b sm" data-copy="endpoint">Copy</button></div>
+        <p class="hint" style="margin:8px 0 0">Streamable HTTP · authenticated with a Bearer key</p>
+      </section>
+
+      <section class="panel">
+        <h2>Try asking Claude</h2>
+        <ul class="rows">{examples.map((e) => <li style="font-size:0.9rem">“{e}”</li>)}</ul>
+      </section>
+
+      <section class="panel">
+        <h2>What Claude can do</h2>
+        <ul class="rows">
+          {
+            tools.map(([n, d]) => (
+              <li style="font-size:0.85rem">
+                <code class="grow">{n}</code>
+                <span class="muted" style="text-align:right">{d}</span>
+              </li>
+            ))
+          }
+        </ul>
+      </section>
+    </div>
+  </div>
+</Admin>
+
+<script>
+  import { api, confirmDialog, copy, toast } from '../../scripts/admin';
+
+  const endpoint = document.getElementById('endpoint')!.textContent!.trim();
+
+  document.getElementById('create')!.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget as HTMLFormElement;
+    const name = (form.elements.namedItem('name') as HTMLInputElement).value;
+    try {
+      const { token } = await api('/api/admin/tokens', 'POST', { name });
+      document.getElementById('token')!.textContent = token;
+      document.getElementById('cmd')!.textContent =
+        `claude mcp add --scope user --transport http nafay3d-site ${endpoint} --header "Authorization: Bearer ${token}"`;
+      document.getElementById('connector')!.textContent = `${endpoint}/${token}`;
+      document.getElementById('result')!.hidden = false;
+      form.reset();
+    } catch (err) {
+      toast((err as Error).message, true);
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-copy]');
+    if (b) copy(document.getElementById(b.dataset.copy!)!.textContent!.trim());
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('.revoke').forEach((b) =>
+    b.addEventListener('click', async () => {
+      if (!(await confirmDialog('Revoke this key? Claude will lose access until you add a new one.', 'Revoke'))) return;
+      const li = b.closest('li')!;
+      await api(`/api/admin/tokens?id=${li.dataset.id}`, 'DELETE');
+      li.remove();
+      toast('Key revoked');
+    }),
+  );
+</script>
+
+<style>
+  .create {
+    display: flex;
+    gap: 8px;
+  }
+  .create .input {
+    flex: 1;
+    border-radius: 999px;
+    padding: 0 16px;
+    height: 38px;
+  }
+</style>

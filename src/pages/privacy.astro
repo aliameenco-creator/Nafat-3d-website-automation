@@ -1,0 +1,54 @@
+---
+import Base from '../layouts/Base.astro';
+import { emailConsent, newsletter, site } from '../data/site';
+const updated = 'November 2026';
+---
+
+<Base title="Privacy Policy" description="What this website collects when you get a free resource or join the email list, why, and how to have it deleted.">
+  <section class="section">
+    <div class="wrap narrow prose">
+      <p class="eyebrow">Legal</p>
+      <h1>Privacy Policy</h1>
+      <p class="muted">Last updated {updated}</p>
+
+      <p>
+        This website belongs to {site.name}. This page explains what is collected when you get a free resource or join the email list, who
+        else handles it, and how you can have it deleted.{' '}
+        {site.email ? <>Questions: <a href={`mailto:${site.email}`}>{site.email}</a>.</> : <>Questions: reply to any email you have received from me.</>}
+      </p>
+
+      <h2>When you get a free resource</h2>
+      <p>Free prompts, templates, guides and files on this site are unlocked with your name and email address. I store:</p>
+      <ul>
+        <li>your name and email address;</li>
+        <li>which resource you asked for, the page you were on, and the date and time;</li>
+        <li>your IP address, the country it points to, and your browser type, as a record of where the request came from;</li>
+        <li>the exact wording you agreed to under the form;</li>
+        <li>which resources you open and which files you download afterwards.</li>
+      </ul>
+      <p>The wording you agree to is:</p>
+      <blockquote>{emailConsent.text}</blockquote>
+
+      <h2>Who else handles your data</h2>
+      <ul>
+        <li><b>Hostinger</b> hosts the website and the database where the list is stored.</li>
+        <li><b>Resend</b> delivers the emails I send you.</li>
+        <li><b>Kit</b> runs {newsletter.name}; your address is also added to that list when you sign up here.</li>
+      </ul>
+
+      <h2>Unsubscribing and deleting your data</h2>
+      <p>
+        Every email has a one-click unsubscribe link. After you unsubscribe I stop emailing you, and the resources you unlocked keep working.
+        To have your record deleted completely, ask by replying to one of my emails from the address you signed up with.
+      </p>
+
+      <h2>Cookies</h2>
+      <p>
+        A small cookie remembers that you already unlocked a resource, so you are not asked again on the same browser. Nothing is used for
+        advertising.
+      </p>
+
+      <p>If this policy changes, the new version appears on this page with a new date.</p>
+    </div>
+  </section>
+</Base>

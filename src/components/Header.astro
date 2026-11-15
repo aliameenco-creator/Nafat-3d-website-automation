@@ -1,0 +1,89 @@
+---
+import { nav, newsletter, site } from '../data/site';
+const path = Astro.url.pathname;
+const active = (href: string) => (href === '/' ? false : path.startsWith(href));
+---
+
+<header class="header">
+  <div class="wrap bar">
+    <a href="/" class="logo">
+      {site.name}
+      <svg viewBox="0 0 120 14" preserveAspectRatio="none" aria-hidden="true"><path d="M3 9 C 30 2, 70 2, 117 6" fill="none" stroke="#7c91d0" stroke-width="3" stroke-linecap="round"></path></svg>
+    </a>
+    <nav class="links" aria-label="Main">
+      {nav.map((n) => <a href={n.href} aria-current={active(n.href) ? 'page' : undefined}>{n.label}</a>)}
+      <a class="join" href={newsletter.url} rel="noopener">Get the AI Brief</a>
+    </nav>
+  </div>
+</header>
+
+<style>
+  .header {
+    background: var(--bg);
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-top: 22px;
+    padding-bottom: 22px;
+    max-width: 1120px;
+  }
+  .logo {
+    font-family: var(--serif);
+    font-size: 26px;
+    text-decoration: none;
+    position: relative;
+    padding-bottom: 4px;
+    line-height: 1.2;
+  }
+  .logo svg {
+    position: absolute;
+    left: -4px;
+    bottom: -6px;
+    width: 112%;
+    height: 14px;
+  }
+  .links {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    font-weight: 500;
+    font-size: 15px;
+  }
+  .links a {
+    text-decoration: none;
+  }
+  .links a:not(.join):hover,
+  .links a[aria-current='page'] {
+    color: var(--accent-ink);
+  }
+  .join {
+    background: var(--accent);
+    color: var(--accent-text);
+    font-weight: 600;
+    padding: 10px 20px;
+    border-radius: 999px;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+  .join:hover {
+    background: #e48f60;
+  }
+  @media (max-width: 640px) {
+    .bar {
+      flex-wrap: wrap;
+      row-gap: 12px;
+    }
+    .links {
+      gap: 16px;
+      width: 100%;
+      font-size: 14px;
+    }
+    .join {
+      margin-left: auto;
+      padding: 8px 16px;
+    }
+  }
+</style>

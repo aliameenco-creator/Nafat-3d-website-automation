@@ -1,0 +1,95 @@
+---
+import Admin from '../../layouts/Admin.astro';
+import { all } from '../../lib/server/db';
+import type { User } from '../../lib/server/auth';
+
+export const prerender = false;
+
+const users = await all<User>(`SELECT id, email, name, created_at, last_login_at FROM users ORDER BY created_at`);
+const me = Astro.locals.user!.id;
+const fmt = (ms: number | null) => (ms ? new Date(Number(ms)).toLocaleDateString('en-US', { dateStyle: 'medium' }) : 'Never');
+---
+
+<Admin title="Team">
+  <div class="page-head">
+    <div>
+      <h1>Team</h1>
+      <p>Everyone here can sign in to the dashboard and has full access. Nobody else can.</p>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <section class="panel">
+      <h2>Admins</h2>
+      <ul class="rows">
+        {
+          users.map((u) => (
+            <li data-id={u.id}>
+              <span class="avatar">{u.name.slice(0, 1).toUpperCase()}</span>
+              <div class="grow">
+                <span class="title">
+                  {u.name} {u.id === me && <span class="muted">(you)</span>}
+                </span>
+                <span class="sub">
+                  {u.email} · last signed in {fmt(u.last_login_at)}
+                </span>
+              </div>
+              {u.id !== me && <button class="b sm danger remove">Remove</button>}
+            </li>
+          ))
+        }
+      </ul>
+    </section>
+
+    <section class="panel">
+      <h2>Add an admin</h2>
+      <form id="add">
+        <label class="field"><span>Name</span><input name="name" required maxlength="80" /></label>
+        <label class="field"><span>Email</span><input name="email" type="email" required autocomplete="off" /></label>
+        <label class="field">
+          <span>Temporary password <small>10+ characters</small></span>
+          <div style="display:flex;gap:8px">
+            <input name="password" required minlength="10" autocomplete="new-password" class="input" />
+            <button class="b sm" type="button" id="gen" style="height:auto">Generate</button>
+          </div>
+        </label>
+        <p class="hint" style="margin:-4px 0 16px">Share it with them privately. They can change it under Account after signing in.</p>
+        <button class="b primary" type="submit">Add admin</button>
+      </form>
+    </section>
+  </div>
+</Admin>
+
+<script>
+  import { api, confirmDialog, toast } from '../../scripts/admin';
+
+  const form = document.getElementById('add') as HTMLFormElement;
+  document.getElementById('gen')!.addEventListener('click', () => {
+    const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    (form.elements.namedItem('password') as HTMLInputElement).value = Array.from(bytes, (b) => chars[b % chars.length]).join('');
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await api('/api/admin/team', 'POST', Object.fromEntries(new FormData(form)));
+      toast('Admin added');
+      setTimeout(() => location.reload(), 500);
+    } catch (err) {
+      toast((err as Error).message, true);
+    }
+  });
+  document.querySelectorAll<HTMLButtonElement>('.remove').forEach((b) =>
+    b.addEventListener('click', async () => {
+      if (!(await confirmDialog('Remove this admin? They are signed out and their Claude keys stop working.', 'Remove'))) return;
+      const li = b.closest('li')!;
+      try {
+        await api(`/api/admin/team?id=${li.dataset.id}`, 'DELETE');
+        li.remove();
+        toast('Removed');
+      } catch (err) {
+        toast((err as Error).message, true);
+      }
+    }),
+  );
+</script>

@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /files/
+Disallow: /search
+
+Sitemap: https://nafay3d.com/sitemap.xml

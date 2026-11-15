@@ -1,0 +1,72 @@
+---
+import Base from '../layouts/Base.astro';
+import { site } from '../data/site';
+import { subscriberFromUnsubToken, unsubscribe, visitorFrom } from '../lib/server/subscribers';
+
+export const prerender = false;
+
+// The link at the bottom of every email. Opening it only shows a button: email scanners that open links
+// on their own must not unsubscribe anyone.
+let token = Astro.url.searchParams.get('t') ?? '';
+let done = false;
+if (Astro.request.method === 'POST') {
+  token = String((await Astro.request.formData()).get('t') ?? '');
+}
+let subscriber = await subscriberFromUnsubToken(token);
+if (subscriber && Astro.request.method === 'POST') {
+  subscriber = await unsubscribe(subscriber.id, visitorFrom(Astro.request, () => Astro.clientAddress), 'Clicked "Unsubscribe" in an email');
+  done = true;
+}
+Astro.response.headers.set('Cache-Control', 'no-store');
+
+// a•••@gmail.com
+const masked = subscriber ? subscriber.email.replace(/^(.)[^@]*/, (_, first: string) => `${first}•••`) : '';
+---
+
+<Base title="Unsubscribe" description="Stop getting emails from Nafay 3D." noindex>
+  <section class="section">
+    <div class="wrap narrow">
+      <p class="eyebrow">Emails</p>
+      {
+        !subscriber ? (
+          <>
+            <h1>That link does not work</h1>
+            <p class="lead muted">
+              It may be incomplete. Use the unsubscribe link in the latest email you received from {site.name}, or reply to that email and
+              I will take you off the list by hand.
+            </p>
+          </>
+        ) : subscriber.status === 'unsubscribed' ? (
+          <>
+            <h1>{done ? "You're unsubscribed" : "You're already unsubscribed"}</h1>
+            <p class="lead muted">
+              No more emails will go to {masked}. Every resource you unlocked still works on this site. If you request a new one, you will be
+              added back to the list.
+            </p>
+            <div class="btn-row">
+              <a class="btn ghost" href="/resources/">Browse free resources</a>
+            </div>
+          </>
+        ) : (
+          <>
+            <h1>Unsubscribe?</h1>
+            <p class="lead muted">You will stop getting emails at {masked}. Resources you already unlocked keep working.</p>
+            <form method="post" class="btn-row">
+              <input type="hidden" name="t" value={token} />
+              <button class="btn" type="submit">Unsubscribe</button>
+              <a class="btn ghost" href="/">Keep my emails</a>
+            </form>
+          </>
+        )
+      }
+    </div>
+  </section>
+</Base>
+
+<style>
+  button.btn {
+    cursor: pointer;
+    font: inherit;
+    font-weight: 600;
+  }
+</style>

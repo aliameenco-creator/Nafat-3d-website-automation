@@ -1,0 +1,72 @@
+---
+import Admin from '../../layouts/Admin.astro';
+
+export const prerender = false;
+
+const user = Astro.locals.user!;
+---
+
+<Admin title="Account">
+  <div class="page-head">
+    <div>
+      <h1>Account</h1>
+      <p>Your profile and sign-in details.</p>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <section class="panel">
+        <h2>Profile</h2>
+        <form data-form="profile">
+          <label class="field"><span>Name</span><input name="name" value={user.name} required maxlength="80" /></label>
+          <label class="field"><span>Email</span><input name="email" type="email" value={user.email} required /></label>
+          <button class="b primary" type="submit">Save profile</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>Change password</h2>
+        <form data-form="password">
+          <label class="field">
+            <span>Current password</span><input name="currentPassword" type="password" required autocomplete="current-password" />
+          </label>
+          <label class="field">
+            <span>New password <small>10+ characters</small></span>
+            <input name="newPassword" type="password" required minlength="10" autocomplete="new-password" />
+          </label>
+          <button class="b primary" type="submit">Change password</button>
+        </form>
+      </section>
+    </div>
+
+    <section class="panel">
+      <h2>Sessions</h2>
+      <p class="muted" style="margin:0 0 14px">
+        Signed in somewhere you should not be, like a shared computer? Sign out everywhere except this browser.
+      </p>
+      <button class="b danger" id="others" type="button">Sign out other devices</button>
+    </section>
+  </div>
+</Admin>
+
+<script>
+  import { api, toast } from '../../scripts/admin';
+
+  document.querySelectorAll<HTMLFormElement>('[data-form]').forEach((form) =>
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const { message } = await api('/api/admin/account', 'PATCH', Object.fromEntries(new FormData(form)));
+        toast(message);
+        if (form.dataset.form === 'password') form.reset();
+      } catch (err) {
+        toast((err as Error).message, true);
+      }
+    }),
+  );
+  document.getElementById('others')!.addEventListener('click', async () => {
+    const { message } = await api('/api/admin/account', 'PATCH', { signOutOthers: true });
+    toast(message);
+  });
+</script>

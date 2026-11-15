@@ -1,0 +1,74 @@
+---
+// One popup shared by every video card on the page. The player only loads when opened.
+---
+
+<dialog id="video-modal" aria-label="Video player">
+  <button type="button" class="close" aria-label="Close video">×</button>
+  <div class="frame"></div>
+</dialog>
+
+<script>
+  const modal = document.getElementById('video-modal') as HTMLDialogElement | null;
+  const frame = modal?.querySelector('.frame');
+
+  function close() {
+    if (frame) frame.innerHTML = '';
+    modal?.close();
+  }
+
+  document.addEventListener('click', (e) => {
+    const link = (e.target as HTMLElement).closest<HTMLAnchorElement>('a[data-video]');
+    if (!link || !modal || !frame) return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+    e.preventDefault();
+    frame.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${link.dataset.video}?autoplay=1&rel=0" title="YouTube video" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`;
+    modal.showModal();
+  });
+
+  modal?.querySelector('.close')?.addEventListener('click', close);
+  modal?.addEventListener('click', (e) => {
+    if (e.target === modal) close();
+  });
+  modal?.addEventListener('close', () => {
+    if (frame) frame.innerHTML = '';
+  });
+</script>
+
+<style>
+  dialog {
+    width: min(960px, calc(100vw - 24px));
+    padding: 0;
+    border: 0;
+    border-radius: 16px;
+    background: #000;
+    color: #fff;
+    overflow: visible;
+  }
+  dialog::backdrop {
+    background: rgb(0 0 0 / 0.78);
+  }
+  .frame {
+    aspect-ratio: 16 / 9;
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .frame :global(iframe) {
+    width: 100%;
+    height: 100%;
+    border: 0;
+  }
+  .close {
+    position: absolute;
+    right: 0;
+    top: -44px;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 0;
+    background: var(--accent);
+    color: var(--accent-text);
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+</style>

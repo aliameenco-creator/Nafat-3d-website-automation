@@ -1,0 +1,129 @@
+---
+import { siteOrigin } from '../../lib/origin';
+import Base from '../../layouts/Base.astro';
+import NewsletterCta from '../../components/NewsletterCta.astro';
+import ResourceCard from '../../components/ResourceCard.astro';
+import SiteSearch from '../../components/SiteSearch.astro';
+import TopicNav from '../../components/TopicNav.astro';
+import { site } from '../../data/site';
+import { KINDS, liveKinds, liveResources, resourcePath, type Kind, type Resource } from '../../lib/server/resources';
+
+export const prerender = false;
+
+// Rendered from the database on each visit, so a new resource shows up the moment it is published.
+Astro.response.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
+
+const type = Astro.url.searchParams.get('type') ?? '';
+const kind = type in KINDS ? (type as Kind) : undefined;
+const [resources, kinds] = await Promise.all([liveResources({ kind }), liveKinds()]);
+const plural = (k: Kind) => (k === 'other' ? 'Other' : `${KINDS[k]}s`);
+const chips = [
+  { label: 'All', href: '/resources/', current: !kind },
+  ...kinds.map((k) => ({ label: plural(k.kind), href: `/resources/?type=${k.kind}`, current: kind === k.kind })),
+];
+
+// Grouped by month (the video's date), so someone who watched in February knows where to look.
+const month = (r: Resource) => new Date(r.publishedAt ?? r.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+const groups: { label: string; items: Resource[] }[] = [];
+for (const r of resources) {
+  const label = month(r);
+  if (groups.at(-1)?.label === label) groups.at(-1)!.items.push(r);
+  else groups.push({ label, items: [r] });
+}
+const grouped = resources.length > 6;
+
+const base = siteOrigin(Astro.url);
+const schema = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    name: `Free resources by ${site.name}`,
+    url: `${base}/resources/`,
+    author: { '@id': `${base}/#person` },
+    hasPart: resources.slice(0, 30).map((r) => ({ '@type': 'CreativeWork', name: r.title, url: `${base}${resourcePath(r.slug)}`, isAccessibleForFree: true })),
+  },
+];
+---
+
+<Base
+  title="Free resources"
+  description={`Free prompts, templates and guides from ${site.name}'s YouTube videos, all in one place. Search by topic or paste a video link.`}
+  schema={schema}
+  noindex={Boolean(kind)}
+>
+  <section class="section">
+    <div class="wrap res-wrap">
+      <header class="head">
+        <p class="eyebrow">Free resources</p>
+        <h1>Prompts, templates and <em>guides</em></h1>
+        <p class="lead muted">Everything from my videos, in one place. All free: just tell me where to send it.</p>
+        <SiteSearch placeholder="Search a topic or paste a YouTube link" />
+        {kinds.length > 1 && <TopicNav items={chips} />}
+      </header>
+
+      {
+        !resources.length ? (
+          <p class="muted empty">The first free resources are on their way.</p>
+        ) : grouped && !kind ? (
+          groups.map((g) => (
+            <section class="group">
+              <h2 class="month eyebrow">{g.label}</h2>
+              <div class="grid-res">
+                {g.items.map((r) => (
+                  <ResourceCard r={r} />
+                ))}
+              </div>
+            </section>
+          ))
+        ) : (
+          <div class="grid-res flat">
+            {resources.map((r) => (
+              <ResourceCard r={r} />
+            ))}
+          </div>
+        )
+      }
+    </div>
+  </section>
+  <NewsletterCta />
+</Base>
+
+<style>
+  .res-wrap {
+    max-width: 1040px;
+  }
+  .head {
+    max-width: 680px;
+  }
+  .head .lead {
+    margin-bottom: 0;
+  }
+  .empty {
+    margin-top: 40px;
+  }
+  .group {
+    margin-top: 56px;
+  }
+  .month {
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 24px;
+  }
+  .grid-res {
+    display: grid;
+    gap: 40px 28px;
+  }
+  .grid-res.flat {
+    margin-top: 48px;
+  }
+  @media (min-width: 640px) {
+    .grid-res {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  @media (min-width: 960px) {
+    .grid-res {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+</style>

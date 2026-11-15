@@ -1,0 +1,197 @@
+---
+import Admin from '../../layouts/Admin.astro';
+import { listMedia } from '../../lib/server/media';
+
+export const prerender = false;
+
+const media = await listMedia();
+const size = (b: number) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} KB`);
+const totalBytes = media.reduce((s, m) => s + m.size, 0);
+---
+
+<Admin title="Media">
+  <div class="page-head">
+    <div>
+      <h1>Media</h1>
+      <p>{media.length} image{media.length === 1 ? '' : 's'} · {size(totalBytes)} used. Large photos are resized to WebP when you upload.</p>
+    </div>
+    <button class="b accent" id="upload" type="button">
+      <svg viewBox="0 0 24 24"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"></path></svg>Upload images
+    </button>
+    <input type="file" id="files" accept="image/*" multiple hidden />
+  </div>
+
+  <div class="dropzone" id="dropzone">Drop images anywhere on this page to upload them</div>
+
+  {
+    media.length ? (
+      <div class="grid-media">
+        {media.map((m) => (
+          <figure class="tile" data-id={m.id} data-url={m.url}>
+            <div class="img">
+              <img src={m.url} alt={m.alt} loading="lazy" />
+            </div>
+            <figcaption>
+              <input class="input alt" value={m.alt} placeholder="Alt text" aria-label="Alt text" />
+              <div class="meta muted">
+                <span title={m.filename}>{m.filename}</span>
+                <span>
+                  {m.width && m.height ? `${m.width}×${m.height} · ` : ''}
+                  {size(m.size)}
+                </span>
+              </div>
+              <div class="acts">
+                <button class="b sm" data-act="copy">Copy URL</button>
+                <button class="b sm" data-act="md">Copy Markdown</button>
+                <button class="b sm danger" data-act="delete" aria-label="Delete">
+                  <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg>
+                </button>
+              </div>
+            </figcaption>
+          </figure>
+        ))}
+      </div>
+    ) : (
+      <section class="panel empty">
+        <h3>No images yet</h3>
+        <p>Upload cover photos and inline images here, or straight from the post editor.</p>
+      </section>
+    )
+  }
+</Admin>
+
+<script>
+  import { api, confirmDialog, copy, toast, uploadImage } from '../../scripts/admin';
+
+  const input = document.getElementById('files') as HTMLInputElement;
+  const zone = document.getElementById('dropzone')!;
+
+  async function uploadAll(files: FileList | File[]) {
+    const list = Array.from(files).filter((f) => f.type.startsWith('image/'));
+    if (!list.length) return;
+    let done = 0;
+    for (const f of list) {
+      toast(`Uploading ${++done} of ${list.length}…`);
+      try {
+        await uploadImage(f);
+      } catch (e) {
+        toast(`${f.name}: ${(e as Error).message}`, true);
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+    location.reload();
+  }
+
+  document.getElementById('upload')!.addEventListener('click', () => input.click());
+  input.addEventListener('change', () => input.files && uploadAll(input.files));
+  document.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    zone.classList.add('on');
+  });
+  document.addEventListener('dragleave', (e) => {
+    if (!e.relatedTarget) zone.classList.remove('on');
+  });
+  document.addEventListener('drop', (e) => {
+    e.preventDefault();
+    zone.classList.remove('on');
+    if (e.dataTransfer?.files.length) uploadAll(e.dataTransfer.files);
+  });
+
+  document.querySelectorAll<HTMLElement>('.tile').forEach((tile) => {
+    const { id, url } = tile.dataset as { id: string; url: string };
+    const alt = tile.querySelector<HTMLInputElement>('.alt')!;
+    alt.addEventListener('change', async () => {
+      try {
+        await api(`/api/admin/media/${id}`, 'PATCH', { alt: alt.value });
+        toast('Alt text saved');
+      } catch (e) {
+        toast((e as Error).message, true);
+      }
+    });
+    tile.querySelectorAll<HTMLButtonElement>('[data-act]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const act = b.dataset.act;
+        if (act === 'copy') copy(new URL(url, location.origin).href, 'URL copied');
+        if (act === 'md') copy(`![${alt.value}](${url})`, 'Markdown copied');
+        if (act === 'delete') {
+          if (!(await confirmDialog('Delete this image? Posts that use it will show a broken image.', 'Delete'))) return;
+          await api(`/api/admin/media/${id}`, 'DELETE');
+          tile.remove();
+          toast('Deleted');
+        }
+      }),
+    );
+  });
+</script>
+
+<style>
+  .dropzone {
+    position: fixed;
+    inset: 12px;
+    z-index: 60;
+    border: 2px dashed var(--accent);
+    border-radius: 20px;
+    display: grid;
+    place-items: center;
+    font-family: var(--serif);
+    font-size: 2rem;
+    background: color-mix(in srgb, var(--bg) 85%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+  }
+  .dropzone.on {
+    opacity: 1;
+  }
+  .grid-media {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  }
+  .tile {
+    margin: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+    overflow: hidden;
+  }
+  .img {
+    aspect-ratio: 16 / 10;
+    background: var(--bg-soft);
+  }
+  .img img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  figcaption {
+    padding: 12px;
+  }
+  .alt {
+    padding: 7px 10px !important;
+    font-size: 0.85rem !important;
+  }
+  .meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 0.75rem;
+    margin: 8px 0 10px;
+  }
+  .meta span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .meta span:last-child {
+    white-space: nowrap;
+  }
+  .acts {
+    display: flex;
+    gap: 6px;
+  }
+  .acts .danger {
+    margin-left: auto;
+    padding: 0 8px;
+  }
+</style>

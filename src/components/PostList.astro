@@ -1,0 +1,193 @@
+---
+import type { Post } from '../lib/server/posts';
+import { readingMinutes } from '../lib/server/posts';
+
+interface Props {
+  posts: Post[];
+  // Shows the newest post large at the top.
+  feature?: boolean;
+}
+const { posts, feature = false } = Astro.props;
+const [first, ...rest] = feature ? posts : [undefined, ...posts];
+const date = (ms: number | null) =>
+  ms ? new Date(ms).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+---
+
+{
+  first && (
+    <a class="feature" href={`/blog/${first.slug}/`}>
+      <div class="media">
+        {first.coverImage ? (
+          <img src={first.coverImage} alt={first.coverAlt ?? ''} fetchpriority="high" decoding="async" />
+        ) : (
+          <span class="placeholder" aria-hidden="true">{first.title[0]}</span>
+        )}
+      </div>
+      <div class="body">
+        <p class="meta">
+          <span class="new">Latest</span>
+          {date(first.publishedAt)} · {readingMinutes(first.content)} min read
+        </p>
+        <h2>{first.title}</h2>
+        {first.excerpt && <p class="excerpt">{first.excerpt}</p>}
+        <span class="more">Read the post <span aria-hidden="true">→</span></span>
+      </div>
+    </a>
+  )
+}
+
+{
+  rest.length > 0 && (
+    <>
+      {feature && <p class="eyebrow list-label">More posts</p>}
+      <ul class="cards">
+        {(rest as Post[]).map((p) => (
+          <li>
+            <a href={`/blog/${p.slug}/`}>
+              <div class="media">
+                {p.coverImage ? (
+                  <img src={p.coverImage} alt="" loading="lazy" decoding="async" />
+                ) : (
+                  <span class="placeholder" aria-hidden="true">{p.title[0]}</span>
+                )}
+              </div>
+              <p class="meta">
+                {p.tags[0] && <span class="tag">{p.tags[0]}</span>}
+                {date(p.publishedAt)} · {readingMinutes(p.content)} min
+              </p>
+              <h3>{p.title}</h3>
+              {p.excerpt && <p class="excerpt">{p.excerpt}</p>}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </>
+  )
+}
+
+<style>
+  a {
+    text-decoration: none;
+  }
+  .media {
+    aspect-ratio: 16 / 9;
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+  }
+  .media img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.4s ease;
+  }
+  a:hover .media img {
+    transform: scale(1.03);
+  }
+  /* Posts without a cover still get a tidy tile, so the grid stays even. */
+  .placeholder {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    font-family: var(--serif);
+    font-size: 4.5rem;
+    color: var(--accent-ink);
+    background:
+      radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%),
+      var(--bg-soft);
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin: 0 0 8px;
+  }
+  .new,
+  .tag {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+  }
+  .excerpt {
+    color: var(--muted);
+    margin: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  h2,
+  h3 {
+    transition: color 0.15s;
+  }
+  a:hover h2,
+  a:hover h3 {
+    color: var(--accent-ink);
+  }
+
+  .feature {
+    display: grid;
+    gap: 20px 40px;
+    margin-top: 40px;
+    align-items: center;
+  }
+  .feature h2 {
+    font-size: clamp(1.9rem, 4vw, 2.5rem);
+    margin: 0 0 12px;
+  }
+  .feature .excerpt {
+    -webkit-line-clamp: 3;
+    margin-bottom: 18px;
+  }
+  .more {
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+  @media (min-width: 820px) {
+    .feature {
+      grid-template-columns: 1.15fr 1fr;
+    }
+  }
+
+  .list-label {
+    margin: 64px 0 20px;
+    padding-top: 28px;
+    border-top: 1px solid var(--line);
+  }
+  .cards {
+    list-style: none;
+    padding: 0;
+    margin: 32px 0 0;
+    display: grid;
+    gap: 40px 28px;
+  }
+  .list-label + .cards {
+    margin-top: 0;
+  }
+  @media (min-width: 640px) {
+    .cards {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  .cards a {
+    display: block;
+  }
+  .cards .media {
+    margin-bottom: 14px;
+  }
+  .cards h3 {
+    font-size: 1.45rem;
+    line-height: 1.2;
+    margin: 0 0 8px;
+  }
+  .cards .excerpt {
+    font-size: 0.95rem;
+  }
+</style>

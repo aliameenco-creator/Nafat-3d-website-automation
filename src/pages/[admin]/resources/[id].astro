@@ -1,0 +1,15 @@
+---
+import Admin from '../../../layouts/Admin.astro';
+import ResourceEditor from '../../../components/admin/ResourceEditor.astro';
+import { getResource, listFiles, resourceStats } from '../../../lib/server/resources';
+
+export const prerender = false;
+
+const resource = await getResource(Astro.params.id!);
+if (!resource) return Astro.redirect(`${Astro.locals.admin}/resources/`);
+const [files, stats] = await Promise.all([listFiles(resource.id), resourceStats([resource.id])]);
+---
+
+<Admin title={resource.title} bare>
+  <ResourceEditor resource={resource} files={files} stats={stats.get(resource.id)} />
+</Admin>

@@ -1,0 +1,101 @@
+---
+import Base from '../layouts/Base.astro';
+import PostList from '../components/PostList.astro';
+import ResourceCard from '../components/ResourceCard.astro';
+import SiteSearch from '../components/SiteSearch.astro';
+import { searchSite } from '../lib/server/search';
+
+export const prerender = false;
+
+const q = (Astro.url.searchParams.get('q') ?? '').trim().slice(0, 200);
+const { resources, posts } = q ? await searchSite(q) : { resources: [], posts: [] };
+const count = resources.length + posts.length;
+Astro.response.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
+---
+
+<Base title={q ? `Search: ${q}` : 'Search'} description="Search Nafay 3D's free resources and blog posts." noindex>
+  <section class="section">
+    <div class="wrap results">
+      <header class="head">
+        <p class="eyebrow">Search</p>
+        <h1>{q ? <>Results for <em>{q}</em></> : <>Find a prompt, guide or <em>post</em></>}</h1>
+        {q && <p class="lead muted">{count ? `${count} result${count === 1 ? '' : 's'}` : 'Nothing found.'}</p>}
+        <SiteSearch value={q} />
+      </header>
+
+      {
+        q && !count && (
+          <div class="tips muted">
+            <p>Try fewer or different words. If you came from a video, paste its YouTube link: it finds the resources made for it, even if the video was renamed.</p>
+            <p>
+              Or browse <a href="/resources/">all free resources</a> and <a href="/blog/">every post</a>.
+            </p>
+          </div>
+        )
+      }
+
+      {
+        resources.length > 0 && (
+          <section class="block">
+            <h2 class="eyebrow">Free resources · {resources.length}</h2>
+            <div class="grid-res">
+              {resources.map((r) => (
+                <ResourceCard r={r} />
+              ))}
+            </div>
+          </section>
+        )
+      }
+
+      {
+        posts.length > 0 && (
+          <section class="block">
+            <h2 class="eyebrow">Posts · {posts.length}</h2>
+            <PostList posts={posts} />
+          </section>
+        )
+      }
+    </div>
+  </section>
+</Base>
+
+<style>
+  .results {
+    max-width: 1040px;
+  }
+  .head {
+    max-width: 680px;
+  }
+  .head .lead {
+    margin-bottom: 0;
+  }
+  .tips {
+    margin-top: 40px;
+    max-width: 620px;
+  }
+  .block {
+    margin-top: 56px;
+  }
+  .block > .eyebrow {
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 24px;
+  }
+  .block :global(.cards) {
+    margin-top: 0;
+  }
+  .grid-res {
+    display: grid;
+    gap: 40px 28px;
+  }
+  @media (min-width: 640px) {
+    .grid-res {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  @media (min-width: 960px) {
+    .grid-res {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+</style>

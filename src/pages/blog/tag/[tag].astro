@@ -1,0 +1,45 @@
+---
+import Base from '../../../layouts/Base.astro';
+import PostList from '../../../components/PostList.astro';
+import TopicNav from '../../../components/TopicNav.astro';
+import { allTags, livePosts } from '../../../lib/server/posts';
+
+export const prerender = false;
+
+const tag = decodeURIComponent(Astro.params.tag ?? '').toLowerCase();
+const tags = await allTags();
+const posts = (await livePosts()).filter((p) => p.tags.some((t) => t.toLowerCase() === tag));
+if (!posts.length) return new Response(null, { status: 404, statusText: 'Not found' });
+
+Astro.response.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
+const label = posts[0].tags.find((t) => t.toLowerCase() === tag) ?? tag;
+---
+
+<Base title={`Posts about ${label}`} description={`Every post by Nafay 3D about ${label}.`}>
+  <section class="section">
+    <div class="wrap blog">
+      <header class="head">
+        <p class="eyebrow"><a href="/blog/">Blog</a> / Topic</p>
+        <h1>{label}</h1>
+        <p class="lead muted">{posts.length} post{posts.length === 1 ? '' : 's'} about {label}.</p>
+        <TopicNav tags={tags} active={tag} />
+      </header>
+      <PostList posts={posts} />
+    </div>
+  </section>
+</Base>
+
+<style>
+  .blog {
+    max-width: 980px;
+  }
+  .head {
+    max-width: var(--narrow);
+  }
+  .head .lead {
+    margin-bottom: 0;
+  }
+  .eyebrow a {
+    text-decoration: none;
+  }
+</style>

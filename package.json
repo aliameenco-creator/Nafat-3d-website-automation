@@ -1,0 +1,19 @@
+{
+  "name": "nafay3d-site",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "start": "node --env-file-if-exists=.env ./dist/server/entry.mjs"
+  },
+  "dependencies": {
+    "@astrojs/node": "^9.5.0",
+    "@fontsource/young-serif": "^5.2.0",
+    "@fontsource/figtree": "^5.2.0",
+    "astro": "^5.18.2",
+    "marked": "^16.4.2"
+  }
+}

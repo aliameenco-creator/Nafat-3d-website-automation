@@ -1,0 +1,447 @@
+---
+import { siteOrigin } from '../../lib/origin';
+import Base from '../../layouts/Base.astro';
+import NewsletterCta from '../../components/NewsletterCta.astro';
+import ResourceCard from '../../components/ResourceCard.astro';
+import VideoModal from '../../components/VideoModal.astro';
+import { site, newsletter } from '../../data/site';
+import { emailSettings, firstName } from '../../lib/server/email';
+import { renderMarkdown, videoHtml } from '../../lib/server/markdown';
+import { postForVideo } from '../../lib/server/posts';
+import {
+  coverOf,
+  fileSize,
+  findLiveResource,
+  gateFormHtml,
+  inside,
+  kindLabel,
+  kindWord,
+  linkButtonLabel,
+  listFiles,
+  liveResources,
+  resourcePath,
+} from '../../lib/server/resources';
+import {
+  confirmFromEmail,
+  forgetVisitor,
+  getSubscriber,
+  recordUnlock,
+  rememberVisitor,
+  seen,
+  visitorFrom,
+  visitorSubscriber,
+} from '../../lib/server/subscribers';
+import { verify } from '../../lib/server/tokens';
+
+export const prerender = false;
+
+const found = await findLiveResource(Astro.params.slug ?? '');
+if (!found) return new Response(null, { status: 404, statusText: 'Not found' });
+const r = found.resource;
+const path = resourcePath(r.slug);
+// An old slug (from an older video description) moves to the current one.
+if (found.moved) return Astro.redirect(path + Astro.url.search, 301);
+
+const q = Astro.url.searchParams;
+const visitor = { ...visitorFrom(Astro.request, () => Astro.clientAddress), page: path };
+
+// From the button in our email: remember this browser, note the address is confirmed, then drop the key from the URL.
+if (q.has('k')) {
+  const id = await verify('access', q.get('k'));
+  const s = id ? await getSubscriber(id) : null;
+  if (s) {
+    await rememberVisitor(Astro.cookies, s);
+    await confirmFromEmail(s, visitor);
+  }
+  return Astro.redirect(path, 303);
+}
+if (q.has('forget')) {
+  forgetVisitor(Astro.cookies);
+  return Astro.redirect(`${path}#get`, 303);
+}
+
+// The page differs for people who signed up, so it must never be cached.
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+
+const subscriber = await visitorSubscriber(Astro.cookies);
+if (subscriber) {
+  await recordUnlock(subscriber, r, visitor);
+  await seen(subscriber);
+}
+const [files, post, others] = await Promise.all([listFiles(r.id), r.videoId ? postForVideo(r.videoId) : null, liveResources({ limit: 40 })]);
+const word = kindWord(r.kind);
+const includes = inside(r, files);
+const html = subscriber ? renderMarkdown(r.content) : '';
+const unlocked = q.get('unlocked');
+const errorCode = q.get('error');
+const errors: Record<string, string> = {
+  name: 'Please enter your name.',
+  email: 'That email address does not look right.',
+  domain: "Emails can't be delivered to that address. Check it for typos.",
+  rate: 'Too many requests from your network. Please wait a few minutes and try again.',
+  gone: 'This resource is not available any more.',
+};
+const shared = new Set(r.tags.map((t) => t.toLowerCase()));
+const related = others
+  .filter((o) => o.id !== r.id)
+  .map((o) => ({ o, score: o.tags.filter((t) => shared.has(t.toLowerCase())).length * 2 + (o.kind === r.kind ? 1 : 0) }))
+  .sort((a, b) => b.score - a.score)
+  .slice(0, 3)
+  .map((x) => x.o);
+
+const date = new Date(r.publishedAt!);
+const fmt = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+const base = siteOrigin(Astro.url);
+const image = r.coverImage || (r.videoId ? `https://i.ytimg.com/vi/${r.videoId}/maxresdefault.jpg` : coverOf(r)) || '/og.jpg';
+const ext = (name: string) => (name.includes('.') ? name.split('.').pop()!.slice(0, 4).toUpperCase() : 'FILE');
+const schema = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'CreativeWork',
+    name: r.title,
+    description: r.summary || undefined,
+    url: `${base}${path}`,
+    image: new URL(image, base).href,
+    datePublished: date.toISOString(),
+    dateModified: new Date(r.updatedAt).toISOString(),
+    author: { '@id': `${base}/#person` },
+    isAccessibleForFree: true,
+    genre: kindLabel(r.kind),
+    keywords: r.tags.join(', ') || undefined,
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: `${base}/` },
+      { '@type': 'ListItem', position: 2, name: 'Free resources', item: `${base}/resources/` },
+      { '@type': 'ListItem', position: 3, name: r.title, item: `${base}${path}` },
+    ],
+  },
+];
+---
+
+<Base
+  title={`${r.title} (free ${word})`}
+  description={r.summary || `A free ${word} by ${site.name}.`}
+  image={image}
+  imageAlt={r.title}
+  canonical={`${base}${path}`}
+  schema={schema}
+>
+  <article class="section res">
+    <div class="wrap narrow">
+      <nav class="crumbs eyebrow" aria-label="Breadcrumb"><a href="/resources/">Free resources</a></nav>
+      <p class="kind">Free {word}</p>
+      <h1>{r.title}</h1>
+      {r.summary && <p class="lead muted">{r.summary}</p>}
+      <p class="byline muted">
+        <span>By <a href="/about/">{site.name}</a></span>
+        <span>·</span>
+        <time datetime={date.toISOString()}>{fmt}</time>
+      </p>
+    </div>
+
+    {
+      r.videoId && (
+        <div class="wrap narrow">
+          <Fragment set:html={videoHtml(r.videoId, undefined, r.videoTitle ?? r.title)} />
+          {r.videoTitle && <p class="video-title muted">From the video “{r.videoTitle}”</p>}
+        </div>
+      )
+    }
+
+    <div class="wrap narrow" id="get">
+      {
+        subscriber ? (
+          <section class="unlocked">
+            {unlocked ? (
+              <p class="note">
+                <b>Unlocked.</b>
+                {unlocked === 'sent' && emailSettings() ? ` A copy is on its way to ${subscriber.email}.` : ` It is yours to keep.`}
+              </p>
+            ) : (
+              <p class="note muted">
+                Welcome back, {firstName(subscriber.name) || 'friend'}. <a href="?forget=1">Not you?</a>
+              </p>
+            )}
+
+            {r.linkUrl && (
+              <a class="btn accent big" href={r.linkUrl} target="_blank" rel="noopener">
+                {linkButtonLabel(r)}
+                <span aria-hidden="true">↗</span>
+              </a>
+            )}
+
+            {files.length > 0 && (
+              <ul class="files">
+                {files.map((f) => (
+                  <li>
+                    <span class="ext">{ext(f.filename)}</span>
+                    <span class="fname">
+                      {f.filename}
+                      <small class="muted">{fileSize(f.size)}</small>
+                    </span>
+                    <a class="btn ghost" href={f.url} download>
+                      Download
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {html && <div class="prose res-content" data-label={r.kind === 'prompt' ? 'Prompt' : undefined} set:html={html} />}
+
+            <aside class="academy">
+              <p class="eyebrow">Next step</p>
+              <h2>
+                Get new tools in <em>{newsletter.name}</em>
+              </h2>
+              <p class="muted">A short weekly email on new AI tools, and the next free resources when they land.</p>
+              <div class="btn-row">
+                <a class="btn accent" href={newsletter.url} rel="noopener">
+                  Get the AI Brief
+                </a>
+              </div>
+            </aside>
+          </section>
+        ) : (
+          <section class="locked">
+            <h2>Get it free</h2>
+            <p class="muted intro">
+              {emailSettings() ? 'Tell me where to send it. It opens right here, and a copy lands in your inbox.' : 'Tell me who you are and it opens right here.'}
+            </p>
+            {includes.length > 0 && (
+              <ul class="check-list includes">
+                {includes.map((i) => (
+                  <li>{i}</li>
+                ))}
+              </ul>
+            )}
+            {errorCode && (
+              <p class="gate-error" role="alert">
+                {errors[errorCode] ?? 'Something went wrong. Please try again.'}
+              </p>
+            )}
+            <Fragment set:html={gateFormHtml(r, path)} />
+          </section>
+        )
+      }
+
+      {
+        post && (
+          <p class="also">
+            Read the full guide: <a href={`/blog/${post.slug}/`}>{post.title}</a>
+          </p>
+        )
+      }
+    </div>
+  </article>
+
+  {
+    related.length > 0 && (
+      <section class="section">
+        <div class="wrap more">
+          <p class="eyebrow">More free resources</p>
+          <div class="grid-res">
+            {related.map((o) => (
+              <ResourceCard r={o} />
+            ))}
+          </div>
+          <p class="all">
+            <a href="/resources/">See all free resources →</a>
+          </p>
+        </div>
+      </section>
+    )
+  }
+  {!subscriber && <NewsletterCta />}
+  <VideoModal />
+</Base>
+
+<script is:inline define:vars={{ slug: r.slug, clean: Boolean(unlocked || errorCode) }}>
+  try {
+    navigator.sendBeacon('/api/view', 'r:' + slug);
+  } catch (e) {}
+  // ?unlocked / ?error are only for this one view.
+  if (clean) history.replaceState(null, '', location.pathname + location.hash);
+</script>
+
+<script>
+  import '../../scripts/gate';
+  import '../../scripts/video';
+  import '../../scripts/copy-code';
+</script>
+
+<style>
+  .res {
+    padding-bottom: 48px;
+  }
+  .crumbs a {
+    text-decoration: none;
+  }
+  .crumbs a::before {
+    content: '← ';
+  }
+  .crumbs a:hover {
+    color: var(--text);
+  }
+  .kind {
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    margin: 0 0 10px;
+  }
+  .byline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 0.9rem;
+    margin: 20px 0 0;
+  }
+  .byline a {
+    text-decoration: none;
+    color: var(--text);
+  }
+  .video-title {
+    font-size: 0.88rem;
+    margin: -1.2em 0 0;
+  }
+  #get {
+    margin-top: 40px;
+  }
+  .locked {
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 28px 22px;
+    background:
+      radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 55%),
+      var(--bg-soft);
+  }
+  @media (min-width: 720px) {
+    .locked {
+      padding: 36px 36px 32px;
+    }
+  }
+  .locked h2 {
+    margin-bottom: 6px;
+  }
+  .intro {
+    margin-bottom: 20px;
+  }
+  .includes {
+    margin: 0 0 24px;
+  }
+  .locked > .gate-error {
+    margin-bottom: 12px !important;
+  }
+  .note {
+    margin: 0 0 24px;
+    padding: 14px 18px;
+    border-radius: 12px;
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+  }
+  .note b {
+    color: var(--accent-ink);
+  }
+  .big {
+    width: 100%;
+    justify-content: center;
+    padding: 16px 22px;
+    font-size: 1.05rem;
+  }
+  .files {
+    list-style: none;
+    padding: 0;
+    margin: 20px 0 0;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+  .files li {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+  }
+  .files li + li {
+    border-top: 1px solid var(--line);
+  }
+  .ext {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent-ink);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .fname {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-wrap: anywhere;
+    line-height: 1.35;
+  }
+  .fname small {
+    font-size: 0.8rem;
+  }
+  .files .btn {
+    flex: none;
+    padding: 9px 16px;
+    font-size: 0.9rem;
+  }
+  .res-content {
+    margin-top: 32px;
+  }
+  .academy {
+    margin-top: 56px;
+    padding: 32px 24px;
+    border-radius: 20px;
+    background: var(--bg-soft);
+    text-align: center;
+  }
+  .academy h2 {
+    font-size: clamp(1.7rem, 4vw, 2.2rem);
+  }
+  .academy .btn-row {
+    justify-content: center;
+    margin-top: 20px;
+  }
+  .also {
+    margin-top: 32px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+  }
+  .also a {
+    color: var(--text);
+  }
+  .more {
+    max-width: 1040px;
+  }
+  .grid-res {
+    display: grid;
+    gap: 40px 28px;
+  }
+  @media (min-width: 640px) {
+    .grid-res {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  @media (min-width: 960px) {
+    .grid-res {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  .all {
+    margin-top: 32px;
+  }
+</style>

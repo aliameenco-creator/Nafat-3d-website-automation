@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.astro/
+.env
+# Local SQLite database
+data/
+
+# Gated downloads: kept out of the public repo so the email gate cannot be bypassed. Upload these to the server by hand.
+public/skills/**/*.zip

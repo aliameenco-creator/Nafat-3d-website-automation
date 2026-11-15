@@ -1,0 +1,223 @@
+---
+import Admin from '../../layouts/Admin.astro';
+import { listApiTokens } from '../../lib/server/auth';
+import { listPosts, postCounts, postState, seoAudit, topPosts, viewsByDay } from '../../lib/server/posts';
+import { resourceCounts } from '../../lib/server/resources';
+import { latestSubscribers, subscriberCounts } from '../../lib/server/subscribers';
+
+export const prerender = false;
+
+const base = Astro.locals.admin;
+
+const [counts, recent, days, top, tokens, everything, audience, latest, resources] = await Promise.all([
+  postCounts(),
+  listPosts({ limit: 6 }),
+  viewsByDay(30),
+  topPosts(30, 5),
+  listApiTokens(),
+  listPosts({ limit: 200 }),
+  subscriberCounts(),
+  latestSubscribers(5),
+  resourceCounts(),
+]);
+
+const totalViews = days.reduce((s, d) => s + d.views, 0);
+const peak = Math.max(1, ...days.map((d) => d.views));
+const needsWork = everything.posts
+  .map((p) => ({ p, ...seoAudit(p) }))
+  .filter((x) => x.score < 70)
+  .sort((a, b) => a.score - b.score)
+  .slice(0, 5);
+const scoreClass = (s: number) => (s >= 80 ? 'high' : s >= 60 ? 'mid' : '');
+const fmt = (ms: number | null) => (ms ? new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
+const hour = new Date().getUTCHours() + 5; // Pakistan time, close enough for a greeting
+const greeting = hour % 24 < 12 ? 'Good morning' : hour % 24 < 18 ? 'Good afternoon' : 'Good evening';
+---
+
+<Admin title="Overview">
+  <div class="page-head">
+    <div>
+      <h1>{greeting}, {Astro.locals.user!.name.split(' ')[0]}</h1>
+      <p>Here is how your writing is doing.</p>
+    </div>
+    <a class="b accent" href={`${base}/posts/new/`}>
+      <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg>New post
+    </a>
+  </div>
+
+  <div class="stats">
+    <a class="stat" href={`${base}/posts/?state=published`}><b>{counts.published}</b><span>Published</span></a>
+    <a class="stat" href={`${base}/posts/?state=scheduled`}><b>{counts.scheduled}</b><span>Scheduled</span></a>
+    <a class="stat" href={`${base}/posts/?state=draft`}><b>{counts.draft}</b><span>Drafts</span></a>
+    <div class="stat"><b>{totalViews.toLocaleString()}</b><span>Views, last 30 days</span></div>
+  </div>
+
+  <div class="stats">
+    <a class="stat" href={`${base}/subscribers/`}><b>{audience.subscribed.toLocaleString()}</b><span>Subscribers</span></a>
+    <a class="stat" href={`${base}/subscribers/`}><b>{audience.week.toLocaleString()}</b><span>New subscribers, last 7 days</span></a>
+    <a class="stat" href={`${base}/resources/`}><b>{resources.published}</b><span>Free resources live</span></a>
+    <a class="stat" href={`${base}/emails/`}><b>{audience.confirmed.toLocaleString()}</b><span>Confirmed addresses</span></a>
+  </div>
+
+  {
+    latest.length > 0 && (
+      <section class="panel" style="margin-bottom:16px">
+        <div class="panel-head">
+          <h2>Newest subscribers</h2>
+          <a class="b sm" href={`${base}/subscribers/`}>All subscribers</a>
+        </div>
+        <ul class="rows">
+          {latest.map((s) => (
+            <li>
+              <div class="grow">
+                <a class="title" href={`${base}/subscribers/${s.id}/`}>
+                  {s.name || s.email}
+                </a>
+                <span class="sub">
+                  {s.email} · {s.source ?? '—'} · {fmt(s.createdAt)}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )
+  }
+
+  <div class="two-col">
+    <div>
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Views</h2>
+          <span class="muted" style="font-size:0.8rem">Last 30 days</span>
+        </div>
+        <div class="chart" role="img" aria-label={`${totalViews} views in the last 30 days`}>
+          {
+            days.map((d) => (
+              <div class="bar" style={`--h:${(d.views / peak) * 100}%`} title={`${d.day}: ${d.views} views`}>
+                <span />
+              </div>
+            ))
+          }
+        </div>
+        <div class="axis muted"><span>{days[0].day.slice(5)}</span><span>Today</span></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Recent posts</h2>
+          <a class="b sm" href={`${base}/posts/`}>All posts</a>
+        </div>
+        {
+          recent.posts.length ? (
+            <ul class="rows">
+              {recent.posts.map((p) => (
+                <li>
+                  {p.coverImage ? <img class="thumb" src={p.coverImage} alt="" loading="lazy" /> : <span class="thumb" />}
+                  <div class="grow">
+                    <a class="title" href={`${base}/posts/${p.id}/`}>{p.title}</a>
+                    <span class="sub">{postState(p) === 'draft' ? `Edited ${fmt(p.updatedAt)}` : fmt(p.publishedAt)}</span>
+                  </div>
+                  <span class={`badge ${postState(p)}`}>{postState(p)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div class="empty">
+              <h3>No posts yet</h3>
+              <p>Write your first one here, or ask Claude to draft it through MCP.</p>
+            </div>
+          )
+        }
+      </section>
+    </div>
+
+    <div>
+      <section class="panel">
+        <h2>Most read, last 30 days</h2>
+        {
+          top.length ? (
+            <ul class="rows">
+              {top.map((t) => (
+                <li>
+                  <a class="title grow" href={`${base}/posts/${t.id}/`}>{t.title}</a>
+                  <span class="muted mono">{t.views}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p class="muted" style="margin:0">Views show up here once people start reading.</p>
+          )
+        }
+      </section>
+
+      <section class="panel">
+        <h2>SEO to-do</h2>
+        {
+          needsWork.length ? (
+            <ul class="rows">
+              {needsWork.map((x) => (
+                <li>
+                  <span class={`score ${scoreClass(x.score)}`}>{x.score}</span>
+                  <div class="grow">
+                    <a class="title" href={`${base}/posts/${x.p.id}/#seo`}>{x.p.title}</a>
+                    <span class="sub">{x.checks.filter((c) => !c.ok).length} things to fix</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p class="muted" style="margin:0">Every post scores 70 or more. Nice.</p>
+          )
+        }
+      </section>
+
+      <section class="panel">
+        <h2>Publish from Claude</h2>
+        {
+          tokens.length ? (
+            <p class="muted" style="margin:0 0 14px">
+              {tokens.length} connection{tokens.length > 1 ? 's' : ''} set up. Ask Claude Code to "write a blog post about…" and it
+              lands here as a draft.
+            </p>
+          ) : (
+            <p class="muted" style="margin:0 0 14px">Connect Claude Code to write, edit and publish posts from your terminal.</p>
+          )
+        }
+        <a class="b sm" href={`${base}/mcp/`}>{tokens.length ? 'Manage connections' : 'Connect Claude'}</a>
+      </section>
+    </div>
+  </div>
+</Admin>
+
+<style>
+  .chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 140px;
+  }
+  .bar {
+    flex: 1;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+  }
+  .bar span {
+    display: block;
+    width: 100%;
+    height: max(2px, var(--h));
+    border-radius: 3px 3px 0 0;
+    background: color-mix(in srgb, var(--accent) 75%, transparent);
+    transition: background 0.15s;
+  }
+  .bar:hover span {
+    background: var(--accent);
+  }
+  .axis {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    margin-top: 8px;
+  }
+</style>

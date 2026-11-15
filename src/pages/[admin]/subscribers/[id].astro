@@ -1,0 +1,197 @@
+---
+import Admin from '../../../layouts/Admin.astro';
+import { getSubscriber, subscriberHistory } from '../../../lib/server/subscribers';
+
+export const prerender = false;
+
+const base = Astro.locals.admin;
+const s = await getSubscriber(Astro.params.id!);
+if (!s) return Astro.redirect(`${base}/subscribers/`);
+const { events, emails } = await subscriberHistory(s.id);
+
+const when = (ms: number | null) => (ms ? new Date(ms).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '—');
+const labels: Record<string, string> = {
+  signup: 'Signed up',
+  resubscribe: 'Signed up again',
+  unlock: 'Unlocked',
+  download: 'Downloaded',
+  email: 'Email sent',
+  email_failed: 'Email failed',
+  confirm: 'Confirmed address',
+  unsubscribe: 'Unsubscribed',
+};
+const status = s.status === 'subscribed' && s.confirmedAt ? 'confirmed' : s.status;
+const rows: [string, string | null][] = [
+  ['Signed up', when(s.createdAt)],
+  ['Through', s.source],
+  ['Page', s.sourcePage],
+  ['IP address', s.ip],
+  ['Country', s.country],
+  ['Browser', s.userAgent],
+  ['Agreed to', s.consent],
+  ['Address confirmed', s.confirmedAt ? `${when(s.confirmedAt)}${s.confirmIp ? ` from ${s.confirmIp}` : ''}` : 'Not yet (confirmed when they open a link in one of your emails)'],
+  ['Unsubscribed', s.unsubscribedAt ? when(s.unsubscribedAt) : null],
+];
+---
+
+<Admin title={s.name || s.email}>
+  <div class="page-head">
+    <div>
+      <a class="b sm ghost" href={`${base}/subscribers/`} style="margin:0 0 10px -12px">← Subscribers</a>
+      <h1>{s.name || s.email}</h1>
+      <p><a href={`mailto:${s.email}`}>{s.email}</a> · <span class={`badge ${status}`}>{status}</span></p>
+    </div>
+    <div class="acts" data-id={s.id}>
+      {s.status === 'subscribed' && <button class="b sm" type="button" data-act="unsubscribe">Unsubscribe</button>}
+      <button class="b sm danger" type="button" data-act="delete">Delete permanently</button>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <section class="panel">
+      <h2>History</h2>
+      <ul class="rows timeline">
+        {
+          events.map((e) => (
+            <li>
+              <div class="grow">
+                <span class="title">
+                  <span class={`dot ${e.type}`} />
+                  {labels[e.type] ?? e.type}
+                  {e.type !== 'signup' && e.type !== 'resubscribe' && e.detail && <span class="muted">: {e.detail}</span>}
+                </span>
+                {(e.type === 'signup' || e.type === 'resubscribe') && <span class="sub">{e.detail}</span>}
+                <span class="sub">
+                  {when(e.at)}
+                  {e.page && <> · {e.page}</>}
+                  {e.ip && <> · {e.ip}</>}
+                  {e.country && <> · {e.country}</>}
+                </span>
+              </div>
+            </li>
+          ))
+        }
+      </ul>
+    </section>
+
+    <div>
+      <section class="panel">
+        <h2>Proof of consent</h2>
+        <dl class="facts">
+          {
+            rows
+              .filter(([, v]) => v)
+              .map(([k, v]) => (
+                <>
+                  <dt>{k}</dt>
+                  <dd>{v}</dd>
+                </>
+              ))
+          }
+        </dl>
+      </section>
+
+      <section class="panel">
+        <h2>Emails from you</h2>
+        {
+          emails.length ? (
+            <ul class="rows">
+              {emails.map((m) => (
+                <li>
+                  <div class="grow">
+                    <span class="title">{m.subject || '(no subject)'}</span>
+                    <span class="sub">
+                      {m.status === 'sent' ? `Sent ${when(m.sent_at)}` : m.status}
+                      {m.error && ` · ${m.error}`}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p class="muted" style="margin:0">No broadcasts yet.</p>
+          )
+        }
+      </section>
+    </div>
+  </div>
+</Admin>
+
+<script>
+  import { adminUrl, api, confirmDialog, toast } from '../../../scripts/admin';
+
+  const box = document.querySelector<HTMLElement>('.acts')!;
+  box.querySelectorAll<HTMLButtonElement>('[data-act]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const id = box.dataset.id!;
+      try {
+        if (b.dataset.act === 'unsubscribe') {
+          if (!(await confirmDialog('Unsubscribe this person? They stop getting your emails. Only they can join again.', 'Unsubscribe'))) return;
+          await api(`/api/admin/subscribers/${id}`, 'PATCH', { action: 'unsubscribe' });
+          toast('Unsubscribed');
+          setTimeout(() => location.reload(), 400);
+        } else {
+          const ok = await confirmDialog(
+            'Delete this person and their whole history, including the proof of consent? Do this when someone asks you to erase their data. It cannot be undone.',
+            'Delete permanently',
+          );
+          if (!ok) return;
+          await api(`/api/admin/subscribers/${id}`, 'DELETE');
+          location.href = adminUrl('/subscribers/');
+        }
+      } catch (e) {
+        toast((e as Error).message, true);
+      }
+    }),
+  );
+</script>
+
+<style>
+  .acts {
+    display: flex;
+    gap: 8px;
+  }
+  .timeline .title {
+    white-space: normal;
+  }
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 8px;
+    vertical-align: middle;
+    background: var(--muted);
+  }
+  .dot.signup,
+  .dot.resubscribe,
+  .dot.confirm {
+    background: var(--ok);
+  }
+  .dot.unlock,
+  .dot.download {
+    background: var(--accent);
+  }
+  .dot.unsubscribe,
+  .dot.email_failed {
+    background: var(--bad);
+  }
+  .timeline .sub {
+    display: block;
+    overflow-wrap: anywhere;
+  }
+  .facts {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 8px 16px;
+    margin: 0;
+    font-size: 0.88rem;
+  }
+  .facts dt {
+    color: var(--muted);
+  }
+  .facts dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+</style>

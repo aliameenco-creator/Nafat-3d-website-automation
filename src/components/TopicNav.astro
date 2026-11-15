@@ -1,0 +1,67 @@
+---
+// One row of topic chips for the Blog and Resources pages. It scrolls sideways on phones instead of wrapping.
+interface Props {
+  tags?: { tag: string; count: number }[];
+  // Lowercased tag of the page being viewed; empty means "All".
+  active?: string;
+  // Other chips, e.g. resource types. Used instead of tags when given.
+  items?: { label: string; href: string; current?: boolean }[];
+}
+const { tags = [], active = '', items } = Astro.props;
+const links = items ?? [
+  { label: 'All', href: '/blog/', current: !active },
+  ...tags.slice(0, 10).map((t) => ({
+    label: t.tag,
+    href: `/blog/tag/${encodeURIComponent(t.tag.toLowerCase())}/`,
+    current: active === t.tag.toLowerCase(),
+  })),
+];
+---
+
+<nav class="topics" aria-label="Topics">
+  {links.map((l) => <a href={l.href} aria-current={l.current ? 'page' : undefined}>{l.label}</a>)}
+</nav>
+
+<style>
+  .topics {
+    display: flex;
+    gap: 6px;
+    margin: 28px 0 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    /* Lets the row bleed to the screen edge on phones while lining up with the text. */
+    margin-inline: -16px;
+    padding-inline: 16px;
+    mask-image: linear-gradient(to right, transparent, #000 16px, #000 calc(100% - 24px), transparent);
+  }
+  .topics::-webkit-scrollbar {
+    display: none;
+  }
+  @media (min-width: 720px) {
+    .topics {
+      flex-wrap: wrap;
+      margin-inline: 0;
+      padding-inline: 0;
+      mask-image: none;
+    }
+  }
+  .topics a {
+    flex: none;
+    font-size: 0.85rem;
+    padding: 6px 14px;
+    border-radius: 999px;
+    text-decoration: none;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .topics a:hover {
+    color: var(--text);
+    border-color: var(--muted);
+  }
+  .topics a[aria-current='page'] {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--bg);
+  }
+</style>

@@ -1,0 +1,250 @@
+---
+import Admin from '../../../layouts/Admin.astro';
+import { emailSettings } from '../../../lib/server/email';
+import { listResources } from '../../../lib/server/resources';
+import { listSubscribers, signupsByDay, subscriberCounts } from '../../../lib/server/subscribers';
+
+export const prerender = false;
+
+const base = Astro.locals.admin;
+const q = Astro.url.searchParams;
+const statuses = ['all', 'subscribed', 'confirmed', 'unsubscribed'] as const;
+const status = (statuses as readonly string[]).includes(q.get('status') ?? '') ? q.get('status')! : 'all';
+const search = q.get('q')?.trim() ?? '';
+const resource = q.get('resource')?.trim() ?? '';
+const page = Math.max(1, Number(q.get('page')) || 1);
+const per = 50;
+
+const [counts, days, { subscribers, total }, { resources }] = await Promise.all([
+  subscriberCounts(),
+  signupsByDay(30),
+  listSubscribers({ status, search, resource, limit: per, offset: (page - 1) * per }),
+  listResources({ limit: 200 }),
+]);
+const pages = Math.ceil(total / per);
+const peak = Math.max(1, ...days.map((d) => d.count));
+const monthTotal = days.reduce((s, d) => s + d.count, 0);
+const countFor: Record<string, number> = { all: counts.everyone, subscribed: counts.subscribed, confirmed: counts.confirmed, unsubscribed: counts.unsubscribed };
+
+const params = (o: Record<string, string | number | undefined>) => {
+  const p = new URLSearchParams();
+  const merged = { status, q: search, resource, ...o };
+  for (const [k, v] of Object.entries(merged)) if (v && !(k === 'status' && v === 'all') && !(k === 'page' && v === 1)) p.set(k, String(v));
+  return p.toString();
+};
+const link = (o: Record<string, string | number | undefined>) => `${base}/subscribers/${params(o) ? `?${params(o)}` : ''}`;
+const exportUrl = `/api/admin/subscribers/export?${params({ page: undefined })}`;
+const fmt = (ms: number) => new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+const filtered = Boolean(search || resource || status !== 'all');
+---
+
+<Admin title="Subscribers">
+  <div class="page-head">
+    <div>
+      <h1>Subscribers</h1>
+      <p>Everyone who gave their name and email for a free resource. Each address is stored once.</p>
+    </div>
+    <a class="b" href={exportUrl} download>
+      <svg viewBox="0 0 24 24"><path d="M12 4v12M6 10l6 6 6-6M4 20h16"></path></svg>
+      Export CSV{filtered ? ' (filtered)' : ''}
+    </a>
+  </div>
+
+  {
+    !emailSettings() && (
+      <div class="notice">
+        Delivery emails are off, so people get their resource on the page only. <a href={`${base}/emails/#setup`}>Turn on email</a>
+      </div>
+    )
+  }
+
+  <div class="stats">
+    <a class="stat" href={link({ status: 'subscribed', page: 1 })}><b>{counts.subscribed.toLocaleString()}</b><span>Subscribed</span></a>
+    <div class="stat"><b>{counts.week.toLocaleString()}</b><span>New in the last 7 days</span></div>
+    <a class="stat" href={link({ status: 'confirmed', page: 1 })}><b>{counts.confirmed.toLocaleString()}</b><span>Confirmed (opened an email link)</span></a>
+    <a class="stat" href={link({ status: 'unsubscribed', page: 1 })}><b>{counts.unsubscribed.toLocaleString()}</b><span>Unsubscribed</span></a>
+  </div>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>New subscribers</h2>
+      <span class="muted" style="font-size:0.8rem">{monthTotal} in the last 30 days</span>
+    </div>
+    <div class="chart" role="img" aria-label={`${monthTotal} new subscribers in the last 30 days`}>
+      {
+        days.map((d) => (
+          <div class="bar" style={`--h:${(d.count / peak) * 100}%`} title={`${d.day}: ${d.count}`}>
+            <span />
+          </div>
+        ))
+      }
+    </div>
+    <div class="axis muted"><span>{days[0].day.slice(5)}</span><span>Today</span></div>
+  </section>
+
+  <div class="toolbar">
+    <nav class="tabs" aria-label="Filter by status">
+      {
+        statuses.map((s) => (
+          <a href={link({ status: s, page: 1 })} aria-current={status === s ? 'true' : undefined}>
+            {s[0].toUpperCase() + s.slice(1)}
+            <span>{countFor[s]}</span>
+          </a>
+        ))
+      }
+    </nav>
+    <form class="filters" method="get">
+      {status !== 'all' && <input type="hidden" name="status" value={status} />}
+      <select class="input" name="resource" aria-label="Filter by resource" onchange="this.form.submit()">
+        <option value="">Any resource</option>
+        {resources.map((r) => <option value={r.id} selected={r.id === resource}>{r.title}</option>)}
+      </select>
+      <input class="input" type="search" name="q" value={search} placeholder="Search name or email…" aria-label="Search subscribers" />
+    </form>
+  </div>
+
+  <section class="panel" style="padding:8px 8px 4px">
+    {
+      subscribers.length ? (
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Person</th>
+              <th class="hide-sm">Joined through</th>
+              <th class="hide-sm num">Resources</th>
+              <th class="hide-sm">Joined</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {subscribers.map((s) => (
+              <tr>
+                <td>
+                  <a class="who" href={`${base}/subscribers/${s.id}/`}>
+                    <b>{s.name || '—'}</b>
+                    <span class="muted">{s.email}</span>
+                  </a>
+                </td>
+                <td class="hide-sm muted"><span class="clip" title={s.source ?? ''}>{s.source ?? '—'}</span></td>
+                <td class="hide-sm num muted">{s.unlocks}</td>
+                <td class="hide-sm muted" style="white-space:nowrap">{fmt(s.createdAt)}</td>
+                <td>
+                  <span class={`badge ${s.status === 'subscribed' && s.confirmedAt ? 'confirmed' : s.status}`}>
+                    {s.status === 'subscribed' && s.confirmedAt ? 'confirmed' : s.status}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <div class="empty">
+          <h3>{filtered ? 'Nobody matches' : 'No subscribers yet'}</h3>
+          <p>{filtered ? 'Try a different search or filter.' : 'They appear here as soon as someone unlocks a free resource.'}</p>
+        </div>
+      )
+    }
+  </section>
+
+  {
+    pages > 1 && (
+      <nav class="pager">
+        {page > 1 && <a class="b sm" href={link({ page: page - 1 })}>← Newer</a>}
+        <span class="muted">Page {page} of {pages}</span>
+        {page < pages && <a class="b sm" href={link({ page: page + 1 })}>Older →</a>}
+      </nav>
+    )
+  }
+
+  <p class="hint" style="margin-top:16px">
+    The CSV has everything an email tool asks for when you import a list: when and where each person signed up, their IP address,
+    the exact wording they agreed to, and when they confirmed or unsubscribed.
+  </p>
+</Admin>
+
+<style>
+  .chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 110px;
+  }
+  .bar {
+    flex: 1;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+  }
+  .bar span {
+    display: block;
+    width: 100%;
+    height: max(2px, var(--h));
+    border-radius: 3px 3px 0 0;
+    background: color-mix(in srgb, var(--accent) 75%, transparent);
+  }
+  .bar:hover span {
+    background: var(--accent);
+  }
+  .axis {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    margin-top: 8px;
+  }
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: space-between;
+    align-items: center;
+    margin: 16px 0;
+  }
+  .filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .filters .input {
+    height: 38px;
+    border-radius: 999px;
+    padding: 0 16px;
+    width: 220px;
+  }
+  .who {
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    min-width: 0;
+  }
+  .who b {
+    font-weight: 500;
+  }
+  .who span {
+    font-size: 0.82rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .who:hover b {
+    text-decoration: underline;
+  }
+  /* Table cells ignore max-width, so long text is clipped inside a block span instead. */
+  .clip {
+    display: block;
+    max-width: 18ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .who span {
+    max-width: 30ch;
+    white-space: nowrap;
+  }
+  .pager {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    align-items: center;
+    margin-top: 20px;
+    font-size: 0.88rem;
+  }
+</style>

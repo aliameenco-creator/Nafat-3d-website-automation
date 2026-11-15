@@ -1,0 +1,305 @@
+---
+import Admin from '../../../layouts/Admin.astro';
+import { listPosts, postCounts, postState, seoAudit, viewTotals, type ListOptions } from '../../../lib/server/posts';
+
+export const prerender = false;
+
+const q = Astro.url.searchParams;
+const states = ['all', 'published', 'scheduled', 'draft', 'trash'] as const;
+const state = (states as readonly string[]).includes(q.get('state') ?? '') ? (q.get('state') as ListOptions['state']) : 'all';
+const search = q.get('q')?.trim() ?? '';
+const tag = q.get('tag')?.trim() ?? '';
+const page = Math.max(1, Number(q.get('page')) || 1);
+const per = 25;
+const base = Astro.locals.admin;
+
+const [counts, { posts, total }] = await Promise.all([
+  postCounts(),
+  listPosts({ state, search, tag, limit: per, offset: (page - 1) * per }),
+]);
+const views = await viewTotals(posts.map((p) => p.id));
+const allCount = counts.published + counts.scheduled + counts.draft;
+const countFor = { all: allCount, ...counts };
+const pages = Math.ceil(total / per);
+
+const link = (o: Record<string, string | number | undefined>) => {
+  const p = new URLSearchParams();
+  const merged = { state, q: search, tag, ...o };
+  for (const [k, v] of Object.entries(merged)) if (v && !(k === 'state' && v === 'all') && !(k === 'page' && v === 1)) p.set(k, String(v));
+  const s = p.toString();
+  return `${base}/posts/${s ? `?${s}` : ''}`;
+};
+const fmt = (ms: number | null) => (ms ? new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
+const scoreClass = (s: number) => (s >= 80 ? 'high' : s >= 60 ? 'mid' : '');
+---
+
+<Admin title="Posts">
+  <div class="page-head">
+    <div>
+      <h1>Posts</h1>
+      <p>{allCount} post{allCount === 1 ? '' : 's'} on your blog.</p>
+    </div>
+    <a class="b accent" href={`${base}/posts/new/`}><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg>New post</a>
+  </div>
+
+  <div class="toolbar">
+    <nav class="tabs" aria-label="Filter by status">
+      {
+        states.map((s) => (
+          <a href={link({ state: s, page: 1 })} aria-current={state === s ? 'true' : undefined}>
+            {s === 'all' ? 'All' : s[0].toUpperCase() + s.slice(1)}
+            <span>{countFor[s]}</span>
+          </a>
+        ))
+      }
+    </nav>
+    <form class="search" method="get">
+      {state !== 'all' && <input type="hidden" name="state" value={state} />}
+      <input class="input" type="search" name="q" value={search} placeholder="Search posts…" aria-label="Search posts" />
+    </form>
+  </div>
+
+  {
+    tag && (
+      <p class="muted" style="margin:-8px 0 16px">
+        Tagged <b>{tag}</b> · <a href={link({ tag: undefined })}>clear</a>
+      </p>
+    )
+  }
+
+  <section class="panel" style="padding:8px 8px 4px">
+    {
+      posts.length ? (
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th class="hide-sm">Status</th>
+              <th class="hide-sm">Date</th>
+              <th class="hide-sm num">Views</th>
+              <th class="num">SEO</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {posts.map((p) => {
+              const st = postState(p);
+              const score = seoAudit(p).score;
+              return (
+                <tr data-id={p.id}>
+                  <td>
+                    <div style="display:flex;gap:12px;align-items:center;min-width:0">
+                      {p.coverImage ? <img class="thumb" src={p.coverImage} alt="" loading="lazy" /> : <span class="thumb" />}
+                      <div style="min-width:0">
+                        <a class="post-title" href={`${base}/posts/${p.id}/`}>{p.title}</a>
+                        <div class="muted mono slug">/blog/{p.slug}/</div>
+                        <div class="tags">
+                          {p.tags.slice(0, 4).map((t) => (
+                            <a href={link({ tag: t, page: 1 })}>#{t}</a>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="hide-sm">
+                    <span class={`badge ${st}`}>{st}</span>
+                  </td>
+                  <td class="hide-sm muted" style="white-space:nowrap">{fmt(p.publishedAt ?? p.updatedAt)}</td>
+                  <td class="hide-sm num muted">{views.get(p.id) ?? 0}</td>
+                  <td class="num">
+                    <span class={`score ${scoreClass(score)}`}>{score}</span>
+                  </td>
+                  <td class="num">
+                    <details class="more">
+                      <summary class="b sm ghost" aria-label="Actions">•••</summary>
+                      <div class="menu">
+                        {st === 'trash' ? (
+                          <>
+                            <button data-act="restore">Restore</button>
+                            <button data-act="forever" class="bad">Delete forever</button>
+                          </>
+                        ) : (
+                          <>
+                            <a href={`${base}/posts/${p.id}/`}>Edit</a>
+                            {st === 'published' && (
+                              <a href={`/blog/${p.slug}/`} target="_blank" rel="noopener">
+                                View live
+                              </a>
+                            )}
+                            <button data-act="duplicate">Duplicate</button>
+                            <button data-act="trash" class="bad">Move to trash</button>
+                          </>
+                        )}
+                      </div>
+                    </details>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      ) : (
+        <div class="empty">
+          <h3>{search || tag ? 'Nothing matches' : state === 'trash' ? 'Trash is empty' : 'No posts here yet'}</h3>
+          <p>{search || tag ? 'Try a different search.' : 'Start writing, or ask Claude to draft a post for you.'}</p>
+        </div>
+      )
+    }
+  </section>
+
+  {
+    pages > 1 && (
+      <nav class="pager">
+        {page > 1 && <a class="b sm" href={link({ page: page - 1 })}>← Newer</a>}
+        <span class="muted">Page {page} of {pages}</span>
+        {page < pages && <a class="b sm" href={link({ page: page + 1 })}>Older →</a>}
+      </nav>
+    )
+  }
+</Admin>
+
+<script>
+  import { adminUrl, api, confirmDialog, toast } from '../../../scripts/admin';
+
+  document.querySelectorAll<HTMLButtonElement>('[data-act]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      const id = btn.closest('tr')!.dataset.id!;
+      const act = btn.dataset.act!;
+      try {
+        if (act === 'trash') {
+          await api(`/api/admin/posts/${id}`, 'DELETE');
+          toast('Moved to trash');
+        } else if (act === 'forever') {
+          if (!(await confirmDialog('Delete this post for good? This cannot be undone.', 'Delete forever'))) return;
+          await api(`/api/admin/posts/${id}?forever=1`, 'DELETE');
+          toast('Deleted');
+        } else if (act === 'restore') {
+          await api(`/api/admin/posts/${id}`, 'POST', { action: 'restore' });
+          toast('Restored');
+        } else if (act === 'duplicate') {
+          const { post } = await api(`/api/admin/posts/${id}`, 'POST', { action: 'duplicate' });
+          location.href = adminUrl(`/posts/${post.id}/`);
+          return;
+        }
+        setTimeout(() => location.reload(), 400);
+      } catch (e) {
+        toast((e as Error).message, true);
+      }
+    }),
+  );
+
+  // Close other open menus when one opens.
+  document.querySelectorAll<HTMLDetailsElement>('details.more').forEach((d) =>
+    d.addEventListener('toggle', () => {
+      if (d.open) document.querySelectorAll<HTMLDetailsElement>('details.more[open]').forEach((o) => o !== d && (o.open = false));
+    }),
+  );
+</script>
+
+<style>
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .search .input {
+    width: 240px;
+    height: 38px;
+    border-radius: 999px;
+    padding: 0 16px;
+  }
+  .post-title {
+    font-weight: 500;
+    text-decoration: none;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: min(46ch, 52vw);
+  }
+  .post-title:hover {
+    text-decoration: underline;
+  }
+  .slug {
+    font-size: 0.75rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: min(46ch, 52vw);
+  }
+  .tags {
+    display: flex;
+    gap: 8px;
+    margin-top: 2px;
+  }
+  .tags a {
+    font-size: 0.75rem;
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .tags a:hover {
+    color: var(--accent-ink);
+  }
+  .more {
+    position: relative;
+    display: inline-block;
+  }
+  .more summary {
+    list-style: none;
+    letter-spacing: 1px;
+  }
+  .more summary::-webkit-details-marker {
+    display: none;
+  }
+  .menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 10;
+    min-width: 170px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 40px -20px rgb(0 0 0 / 0.6);
+    text-align: left;
+  }
+  .menu a,
+  .menu button {
+    font: inherit;
+    font-size: 0.88rem;
+    padding: 8px 10px;
+    border-radius: 6px;
+    text-decoration: none;
+    background: none;
+    border: 0;
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+  }
+  .menu a:hover,
+  .menu button:hover {
+    background: var(--bg-soft);
+  }
+  .menu .bad {
+    color: var(--bad);
+  }
+  @media (max-width: 759px) {
+    .table .thumb {
+      display: none;
+    }
+  }
+  .pager {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    align-items: center;
+    margin-top: 20px;
+    font-size: 0.88rem;
+  }
+</style>

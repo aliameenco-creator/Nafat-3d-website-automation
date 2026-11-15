@@ -1,0 +1,68 @@
+---
+import { siteOrigin } from '../../lib/origin';
+import Base from '../../layouts/Base.astro';
+import PostList from '../../components/PostList.astro';
+import SiteSearch from '../../components/SiteSearch.astro';
+import TopicNav from '../../components/TopicNav.astro';
+import { allTags, livePosts } from '../../lib/server/posts';
+import { site } from '../../data/site';
+
+export const prerender = false;
+
+// Rendered from the database on each visit, so new posts show up the moment you publish.
+Astro.response.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
+
+const [posts, tags] = await Promise.all([livePosts(), allTags()]);
+const base = siteOrigin(Astro.url);
+const schema = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'Blog',
+    '@id': `${base}/blog/#blog`,
+    name: `${site.name} — Blog`,
+    url: `${base}/blog/`,
+    author: { '@id': `${base}/#person` },
+    blogPost: posts.slice(0, 20).map((p) => ({
+      '@type': 'BlogPosting',
+      headline: p.title,
+      url: `${base}/blog/${p.slug}/`,
+      datePublished: new Date(p.publishedAt!).toISOString(),
+    })),
+  },
+];
+---
+
+<Base title="Blog" description="Guides and notes by Nafay 3D on AI tools, 3D and building income online." schema={schema}>
+  <section class="section">
+    <div class="wrap blog">
+      <header class="head">
+        <p class="eyebrow">Blog</p>
+        <h1>Essays and <em>guides</em></h1>
+        <p class="lead muted">Notes on AI, automation and building in public. New posts land here first.</p>
+        <SiteSearch />
+        {tags.length > 0 && <TopicNav tags={tags} />}
+      </header>
+      {posts.length ? <PostList posts={posts} feature /> : <p class="muted empty">The first post is on its way.</p>}
+      <p class="rss muted"><a href="/rss.xml">Subscribe with RSS</a></p>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .blog {
+    max-width: 980px;
+  }
+  .head {
+    max-width: var(--narrow);
+  }
+  .head .lead {
+    margin-bottom: 0;
+  }
+  .empty {
+    margin-top: 32px;
+  }
+  .rss {
+    margin-top: 64px;
+    font-size: 0.85rem;
+  }
+</style>

@@ -1,0 +1,501 @@
+---
+// Writing and sending an email to the list. Drafts save themselves; Preview shows the email exactly as people
+// get it; "Send me a test" mails it to you. Sending goes in batches of 50 while this page is open: it can be
+// paused and resumed, and nobody gets the email twice.
+import type { Broadcast } from '../../lib/server/broadcasts';
+
+interface Props {
+  broadcast: Broadcast;
+  audiences: { value: string; label: string; count: number }[];
+  resources: { slug: string; title: string }[];
+  failures: { email: string; error: string }[];
+  ready: boolean;
+}
+const { broadcast: b, audiences, resources, failures, ready } = Astro.props;
+const base = Astro.locals.admin;
+const data = JSON.stringify(b).replace(/</g, '\\u003c');
+const label = b.status === 'sending' ? 'paused' : b.status;
+const me = Astro.locals.user!.email;
+---
+
+<div class="editor" data-ready={ready ? '1' : ''}>
+  <header class="topbar">
+    <a class="b sm ghost" href={`${base}/emails/`}>← Emails</a>
+    <span class={`badge ${b.status}`} id="state">{label}</span>
+    <span class="muted savestate" id="savestate">{b.status === 'draft' ? 'Draft' : ''}</span>
+    <div class="spacer"></div>
+    <button class="b sm" id="test" type="button" title={`Sends this email to ${me}`}>Send me a test</button>
+    <button class="b sm accent" id="send" type="button">Send…</button>
+  </header>
+
+  {
+    !ready && (
+      <div class="notice bad">
+        Sending is not set up yet, so you can write and preview, but not send. <a href={`${base}/emails/#setup`}>How to turn it on</a>
+      </div>
+    )
+  }
+
+  <div class="layout">
+    <section class="main">
+      <input id="subject" class="title subject" placeholder="Subject" aria-label="Subject" maxlength="200" />
+      <input id="preheader" class="preheader" maxlength="200" aria-label="Preview text" placeholder="Preview text (optional): the grey line inboxes show after the subject" />
+
+      <div class="writer">
+        <div class="writer-bar">
+          <div class="mode" role="tablist">
+            <button type="button" role="tab" aria-selected="true" data-mode="write">Write</button>
+            <button type="button" role="tab" aria-selected="false" data-mode="preview">Preview</button>
+          </div>
+          <div class="tools" aria-label="Formatting">
+            <button type="button" data-md="h2" title="Heading">H2</button>
+            <button type="button" data-md="bold" title="Bold (Ctrl+B)"><b>B</b></button>
+            <button type="button" data-md="link" title="Link (Ctrl+K)">
+              <svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"></path></svg>
+            </button>
+            <button type="button" data-md="ul" title="Bullet list">
+              <svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"></path></svg>
+            </button>
+            <button type="button" data-md="image" title="Upload image">
+              <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-5-5L5 21"></path></svg>
+            </button>
+            <button type="button" data-md="youtube" title="YouTube video (shows as a thumbnail)">
+              <svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="4"></rect><path d="m10 9 5 3-5 3z"></path></svg>
+            </button>
+            <button type="button" data-md="name" title="Insert the reader's first name" class="wide">{'{{first_name}}'}</button>
+            {
+              resources.length > 0 && (
+                <select id="add-resource" aria-label="Insert a free resource">
+                  <option value="">+ Free resource…</option>
+                  {resources.map((r) => (
+                    <option value={r.slug}>{r.title}</option>
+                  ))}
+                </select>
+              )
+            }
+          </div>
+        </div>
+        <textarea id="body" class="content-input" aria-label="Message" placeholder={'Hi {{first_name}},\n\nWrite your email in plain words. Markdown works: **bold**, [links](https://…), ## headings.'}></textarea>
+        <div id="preview" class="email-preview" hidden>
+          <p class="muted subject-line" id="preview-subject"></p>
+          <iframe id="frame" title="Email preview" sandbox="allow-same-origin allow-popups"></iframe>
+        </div>
+      </div>
+    </section>
+
+    <aside class="sidebar">
+      <section class="panel">
+        <h2>Send to</h2>
+        <select class="input" id="audience" aria-label="Who gets this email">
+          {
+            audiences.map((a) => (
+              <option value={a.value} data-count={a.count}>
+                {a.label} ({a.count})
+              </option>
+            ))
+          }
+        </select>
+        <p class="hint" style="margin:8px 0 0">Unsubscribed people never get emails.</p>
+      </section>
+
+      <section class="panel" id="progress-panel" hidden>
+        <h2 id="progress-title">Sending</h2>
+        <div class="meter"><span id="meter"></span></div>
+        <div class="mini-stats" style="margin-top:12px">
+          <div><b id="n-sent">0</b><span>sent</span></div>
+          <div><b id="n-left">0</b><span>left</span></div>
+        </div>
+        <p class="hint" id="progress-note" style="margin:12px 0 0"></p>
+        <div class="danger-row" style="margin-top:12px;padding-top:12px">
+          <button class="b sm accent" type="button" id="resume" hidden>Resume</button>
+          <button class="b sm" type="button" id="pause" hidden>Pause</button>
+          <button class="b sm" type="button" id="retry" hidden>Retry failed</button>
+        </div>
+        {
+          failures.length > 0 && (
+            <details class="fails">
+              <summary class="muted">{b.failed} failed: see why</summary>
+              <ul>
+                {failures.map((f) => (
+                  <li>
+                    <b>{f.email}</b>
+                    <span class="muted">{f.error}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )
+        }
+      </section>
+
+      <section class="panel">
+        <h2>Tips</h2>
+        <ul class="tips muted">
+          <li><code>{'{{first_name}}'}</code> becomes each person's first name.</li>
+          <li>A link on its own line becomes a button.</li>
+          <li>A YouTube link on its own line becomes a thumbnail that opens the video.</li>
+          <li>A free resource on its own line becomes a card. It opens for them without the form.</li>
+          <li>Your name, the reason they get it and a one-click unsubscribe link are added at the bottom.</li>
+        </ul>
+      </section>
+
+      <section class="panel">
+        <div class="danger-row" style="margin:0;padding:0;border:0">
+          <button class="b sm" type="button" id="duplicate">Duplicate</button>
+          <button class="b sm danger" type="button" id="delete">Delete</button>
+        </div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script type="application/json" id="broadcast-data" set:html={data} />
+
+<script>
+  import { adminUrl, api, confirmDialog, toast, uploadImage } from '../../scripts/admin';
+
+  type B = Record<string, any>;
+  const $ = <T extends HTMLElement = HTMLInputElement>(id: string) => document.getElementById(id) as T;
+  let b: B = JSON.parse($('broadcast-data').textContent || '{}');
+  const ready = Boolean(document.querySelector<HTMLElement>('.editor')!.dataset.ready);
+  const subject = $('subject');
+  const preheader = $('preheader');
+  const body = $<HTMLTextAreaElement>('body');
+  const audience = $<HTMLSelectElement>('audience');
+  let dirty = false;
+  let sending = false;
+  let paused = false;
+
+  subject.value = b.subject;
+  preheader.value = b.preheader;
+  body.value = b.body;
+  if ([...audience.options].some((o) => o.value === b.audience)) audience.value = b.audience;
+  const locked = () => b.status !== 'draft';
+  const recipients = () => Number(audience.selectedOptions[0]?.dataset.count ?? 0);
+
+  // ---------- Saving (drafts only) ----------
+  const collect = () => ({ subject: subject.value.trim(), preheader: preheader.value.trim(), body: body.value, audience: audience.value });
+  async function save(quiet = true) {
+    if (locked() || !dirty) return true;
+    $('savestate').textContent = 'Saving…';
+    try {
+      b = (await api(`/api/admin/broadcasts/${b.id}`, 'PATCH', collect())).broadcast;
+      dirty = false;
+      $('savestate').textContent = 'Saved';
+      return true;
+    } catch (e) {
+      $('savestate').textContent = 'Not saved';
+      if (!quiet) toast((e as Error).message, true);
+      return false;
+    }
+  }
+  let timer = 0;
+  function changed() {
+    dirty = true;
+    $('savestate').textContent = 'Unsaved changes';
+    clearTimeout(timer);
+    timer = window.setTimeout(save, 1500);
+  }
+  [subject, preheader, body, audience].forEach((el) => el.addEventListener('input', changed));
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      save(false);
+    }
+  });
+  window.addEventListener('beforeunload', (e) => {
+    if (dirty || (sending && !paused)) e.preventDefault();
+  });
+
+  // ---------- Toolbar ----------
+  function wrap(before: string, after = before, placeholder = '') {
+    const { selectionStart: s, selectionEnd: e, value } = body;
+    const sel = value.slice(s, e) || placeholder;
+    body.setRangeText(before + sel + after, s, e, 'end');
+    if (!value.slice(s, e)) body.setSelectionRange(s + before.length, s + before.length + sel.length);
+    body.focus();
+    changed();
+  }
+  function insertBlock(text: string) {
+    const { selectionStart: s, value } = body;
+    const pre = s > 0 && value[s - 1] !== '\n' ? '\n\n' : '';
+    body.setRangeText(`${pre}${text}\n\n`, s, body.selectionEnd, 'end');
+    body.focus();
+    changed();
+  }
+  function linePrefix(prefix: string) {
+    const { selectionStart: s, selectionEnd: e, value } = body;
+    const start = value.lastIndexOf('\n', s - 1) + 1;
+    const end = value.indexOf('\n', e) === -1 ? value.length : value.indexOf('\n', e);
+    body.setRangeText(value.slice(start, end).split('\n').map((l) => prefix + l.replace(/^(#{1,6}\s|-\s)/, '')).join('\n'), start, end, 'end');
+    body.focus();
+    changed();
+  }
+  const imageInput = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
+  imageInput.addEventListener('change', async () => {
+    const f = imageInput.files?.[0];
+    if (!f) return;
+    try {
+      const m = await uploadImage(f);
+      insertBlock(`![${f.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ')}](${m.url})`);
+    } catch (e) {
+      toast((e as Error).message, true);
+    }
+  });
+  const actions: Record<string, () => void> = {
+    h2: () => linePrefix('## '),
+    bold: () => wrap('**', '**', 'bold text'),
+    link: () => {
+      const url = prompt('Link URL', 'https://');
+      if (url) wrap('[', `](${url})`, 'link text');
+    },
+    ul: () => linePrefix('- '),
+    image: () => imageInput.click(),
+    youtube: () => {
+      const url = prompt('YouTube video URL');
+      if (url) insertBlock(url.trim());
+    },
+    name: () => wrap('{{first_name}}', '', ''),
+  };
+  document.querySelectorAll<HTMLButtonElement>('[data-md]').forEach((btn) => btn.addEventListener('click', () => !locked() && actions[btn.dataset.md!]()));
+  document.getElementById('add-resource')?.addEventListener('change', (e) => {
+    const sel = e.target as HTMLSelectElement;
+    if (sel.value) insertBlock(`/resources/${sel.value}/`);
+    sel.value = '';
+  });
+
+  // ---------- Preview ----------
+  const frame = $<HTMLIFrameElement>('frame');
+  async function runPreview() {
+    try {
+      const out = await api('/api/admin/broadcasts/preview', 'POST', collect());
+      $('preview-subject').textContent = `Subject: ${out.subject || '(no subject)'}`;
+      frame.srcdoc = out.html;
+    } catch (e) {
+      toast((e as Error).message, true);
+    }
+  }
+  frame.addEventListener('load', () => {
+    const doc = frame.contentDocument;
+    if (doc?.body) frame.style.height = `${doc.documentElement.scrollHeight + 4}px`;
+  });
+  document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.mode!;
+      document.querySelectorAll('[data-mode]').forEach((o) => o.setAttribute('aria-selected', String(o === btn)));
+      body.hidden = mode !== 'write';
+      $('preview').hidden = mode !== 'preview';
+      document.querySelector('.tools')!.classList.toggle('off', mode !== 'write' || locked());
+      if (mode === 'preview') runPreview();
+    }),
+  );
+
+  // ---------- Test ----------
+  $('test').addEventListener('click', async () => {
+    if (!ready) return toast('Sending is not set up yet. See Emails → Sending setup.', true);
+    if (!(await save(false))) return;
+    const btn = $<HTMLButtonElement>('test');
+    btn.disabled = true;
+    try {
+      const out = await api('/api/admin/broadcasts/preview', 'POST', { ...collect(), test: true });
+      toast(`Test sent to ${out.sentTo}`);
+    } catch (e) {
+      toast((e as Error).message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ---------- Sending ----------
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  function showProgress(p: B) {
+    $('progress-panel').hidden = false;
+    const done = p.total ? Math.round(((p.sent + p.failed) / p.total) * 100) : 0;
+    $('meter').style.width = `${done}%`;
+    $('n-sent').textContent = String(p.sent);
+    $('n-left').textContent = String(p.pending);
+    $('progress-title').textContent = p.done ? 'Sent' : sending && !paused ? 'Sending…' : 'Paused';
+    const failed = p.failed ? ` ${p.failed} could not be delivered.` : '';
+    $('progress-note').textContent = p.stopped
+      ? p.stopped
+      : p.done
+        ? `Sent to ${p.sent} of ${p.total} people.${failed}`
+        : sending && !paused
+          ? `Keep this page open until it finishes.${failed}`
+          : `Press Resume to send to the ${p.pending} people left.${failed}`;
+    $('resume').hidden = p.done || (sending && !paused);
+    $('pause').hidden = p.done || !sending || paused;
+    $('retry').hidden = !p.failed || (sending && !paused);
+    const st = p.done ? 'sent' : 'sending';
+    $('state').textContent = p.done ? 'sent' : sending && !paused ? 'sending' : 'paused';
+    $('state').className = `badge ${st}`;
+  }
+
+  async function run() {
+    if (!ready) return toast('Sending is not set up yet. See Emails → Sending setup.', true);
+    sending = true;
+    paused = false;
+    let last: B | null = null;
+    try {
+      for (;;) {
+        const { progress } = await api(`/api/admin/broadcasts/${b.id}/send`, 'POST', {});
+        last = progress;
+        b.status = progress.status;
+        lockIfSent();
+        showProgress(progress);
+        if (progress.done || progress.stopped || paused) break;
+        await sleep(progress.wait ?? 600);
+      }
+    } catch (e) {
+      toast((e as Error).message, true);
+    } finally {
+      sending = false;
+      lockIfSent();
+      if (last) showProgress(last);
+    }
+  }
+
+  $('send').addEventListener('click', async () => {
+    if (!ready) return toast('Sending is not set up yet. See Emails → Sending setup.', true);
+    if (locked()) return run();
+    if (!subject.value.trim() || !body.value.trim()) return toast('Write a subject and a message first.', true);
+    if (!(await save(false))) return;
+    const n = recipients();
+    if (!n) return toast('Nobody is in this audience yet.', true);
+    const ok = await confirmDialog(`Send “${subject.value.trim()}” to ${n} ${n === 1 ? 'person' : 'people'} now? This cannot be undone.`, `Send to ${n}`, false);
+    if (ok) run();
+  });
+  $('resume').addEventListener('click', () => run());
+  $('pause').addEventListener('click', () => {
+    paused = true;
+    $('pause').hidden = true;
+    $('progress-note').textContent = 'Pausing after this batch…';
+  });
+  $('retry').addEventListener('click', async () => {
+    try {
+      await api(`/api/admin/broadcasts/${b.id}`, 'POST', { action: 'retry' });
+      run();
+    } catch (e) {
+      toast((e as Error).message, true);
+    }
+  });
+
+  $('duplicate').addEventListener('click', async () => {
+    await save();
+    const { broadcast } = await api(`/api/admin/broadcasts/${b.id}`, 'POST', { action: 'duplicate' });
+    location.href = adminUrl(`/emails/${broadcast.id}/`);
+  });
+  $('delete').addEventListener('click', async () => {
+    const message = locked() ? 'Delete this email from your list? It has already gone out; this only removes the record.' : 'Delete this draft?';
+    if (!(await confirmDialog(message, 'Delete'))) return;
+    await api(`/api/admin/broadcasts/${b.id}`, 'DELETE');
+    dirty = false;
+    location.href = adminUrl('/emails/');
+  });
+
+  // Once an email has gone out it is a record: read-only, with the progress panel instead of Send.
+  function lockIfSent() {
+    const on = locked();
+    [subject, preheader, body, audience].forEach((el) => ((el as HTMLInputElement).disabled = on));
+    document.querySelector('.tools')!.classList.toggle('off', on);
+    $('send').hidden = on;
+    $('test').hidden = on;
+  }
+  lockIfSent();
+  if (locked()) showProgress({ total: b.total, sent: b.sent, failed: b.failed, pending: Math.max(0, b.total - b.sent - b.failed), done: b.status === 'sent' });
+  if (!b.subject) subject.focus();
+</script>
+
+<style>
+  .subject {
+    font-size: clamp(1.8rem, 4vw, 2.4rem);
+  }
+  .preheader {
+    width: 100%;
+    background: none;
+    border: 0;
+    border-left: 2px solid var(--line);
+    padding: 4px 0 4px 14px;
+    margin: 14px 0 20px;
+    color: var(--muted);
+    font: inherit;
+    font-size: 1rem;
+    outline: none;
+  }
+  .preheader:focus {
+    border-left-color: var(--accent);
+    color: var(--text);
+  }
+  .tools .wide {
+    padding: 0 8px;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.75rem;
+  }
+  .tools select {
+    height: 32px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background-color: var(--field);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.8rem;
+    padding: 0 10px;
+    max-width: 200px;
+  }
+  .email-preview {
+    background: #f4f3f0;
+    padding: 16px;
+    min-height: 62vh;
+  }
+  .subject-line {
+    font-size: 0.85rem;
+    margin: 0 0 10px;
+    color: #5f5f5f;
+  }
+  .email-preview iframe {
+    width: 100%;
+    min-height: 60vh;
+    border: 0;
+    background: #f4f3f0;
+  }
+  .meter {
+    height: 8px;
+    border-radius: 999px;
+    background: var(--bg-soft);
+    overflow: hidden;
+  }
+  .meter span {
+    display: block;
+    width: 0;
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.3s;
+  }
+  .tips {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 0.85rem;
+  }
+  .tips li + li {
+    margin-top: 6px;
+  }
+  .fails {
+    margin-top: 12px;
+    font-size: 0.8rem;
+  }
+  .fails summary {
+    cursor: pointer;
+  }
+  .fails ul {
+    margin: 8px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .fails li {
+    display: flex;
+    flex-direction: column;
+    padding: 6px 0;
+    border-top: 1px solid var(--line);
+    overflow-wrap: anywhere;
+  }
+</style>

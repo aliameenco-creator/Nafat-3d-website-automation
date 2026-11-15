@@ -1,0 +1,730 @@
+---
+// The writing screen: Markdown editor with live preview, cover image, tags, scheduling, and SEO + social fields
+// with a live checklist. Drafts autosave; published posts only change when you press Update.
+import { site } from '../../data/site';
+import { postState, type Post } from '../../lib/server/posts';
+
+interface Props {
+  post: Post | null;
+}
+const { post } = Astro.props;
+const base = Astro.locals.admin;
+const state = post ? postState(post) : 'draft';
+const host = site.url.replace(/^https?:\/\//, '');
+// Escape < so post content containing </script> cannot break out of the JSON block.
+const data = JSON.stringify(post).replace(/</g, '\\u003c');
+---
+
+<div class="editor" data-state={state} data-host={host}>
+  <header class="topbar">
+    <a class="b sm ghost" href={`${base}/posts/`}>← Posts</a>
+    <span class={`badge ${state}`} id="state">{state}</span>
+    <span class="muted savestate" id="savestate">{post ? 'All changes saved' : 'New post'}</span>
+    <div class="spacer"></div>
+    <a class="b sm view-live" id="view-live" href={post ? `/blog/${post.slug}/` : '#'} target="_blank" rel="noopener" hidden={state !== 'published'}>
+      View live
+    </a>
+    <button class="b sm" id="save" type="button">Save draft</button>
+    <button class="b sm accent" id="publish" type="button">Publish</button>
+  </header>
+
+  <div class="layout">
+    <section class="main">
+      <textarea id="title" class="title" rows="1" placeholder="Post title" aria-label="Title" maxlength="200"></textarea>
+      <div class="slugline">
+        <span class="muted">{host}/blog/</span>
+        <input id="slug" class="slug" aria-label="URL slug" placeholder="post-url" spellcheck="false" maxlength="80" />
+        <span class="muted">/</span>
+      </div>
+      <textarea id="excerpt" class="excerpt" rows="2" placeholder="A one or two sentence summary for the blog list (optional)" aria-label="Excerpt" maxlength="400"></textarea>
+
+      <div class="writer">
+        <div class="writer-bar">
+          <div class="mode" role="tablist">
+            <button type="button" role="tab" aria-selected="true" data-mode="write">Write</button>
+            <button type="button" role="tab" aria-selected="false" data-mode="preview">Preview</button>
+          </div>
+          <div class="tools" aria-label="Formatting">
+            <button type="button" data-md="h2" title="Heading">H2</button>
+            <button type="button" data-md="h3" title="Subheading">H3</button>
+            <button type="button" data-md="bold" title="Bold (Ctrl+B)"><b>B</b></button>
+            <button type="button" data-md="italic" title="Italic (Ctrl+I)"><i>I</i></button>
+            <button type="button" data-md="link" title="Link (Ctrl+K)">
+              <svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"></path></svg>
+            </button>
+            <button type="button" data-md="quote" title="Quote">
+              <svg viewBox="0 0 24 24"><path d="M7 7h4v4c0 3-2 5-4 6M15 7h4v4c0 3-2 5-4 6"></path></svg>
+            </button>
+            <button type="button" data-md="ul" title="Bullet list">
+              <svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"></path></svg>
+            </button>
+            <button type="button" data-md="ol" title="Numbered list">1.</button>
+            <button type="button" data-md="code" title="Code">
+              <svg viewBox="0 0 24 24"><path d="m8 8-4 4 4 4M16 8l4 4-4 4"></path></svg>
+            </button>
+            <button type="button" data-md="image" title="Upload image">
+              <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-5-5L5 21"></path></svg>
+            </button>
+            <button type="button" data-md="youtube" title="Embed YouTube video">
+              <svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="4"></rect><path d="m10 9 5 3-5 3z"></path></svg>
+            </button>
+          </div>
+        </div>
+        <textarea id="content" class="content-input" placeholder="Start writing… Markdown works: ## for headings, **bold**, [links](https://…). Paste or drop images straight in." aria-label="Post body"></textarea>
+        <article id="preview" class="preview prose" hidden></article>
+        <div class="writer-foot muted">
+          <span id="words">0 words</span>
+          <span id="minutes">1 min read</span>
+        </div>
+      </div>
+    </section>
+
+    <aside class="sidebar">
+      <section class="panel">
+        <h2>Publishing</h2>
+        <label class="field">
+          <span>Publish date <small id="date-hint">Leave empty to use the moment you publish</small></span>
+          <input type="datetime-local" id="publishedAt" />
+        </label>
+        <label class="field" style="margin-bottom:0">
+          <span>Tags <small>Comma separated</small></span>
+          <input id="tags" placeholder="ai, automation, youtube" />
+        </label>
+      </section>
+
+      <section class="panel">
+        <h2>Cover image</h2>
+        <div class="drop" id="cover-drop">
+          <img id="cover-img" alt="" hidden />
+          <div class="drop-empty" id="cover-empty">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-5-5L5 21"></path></svg>
+            <span>Drop an image or <u>browse</u></span>
+            <small class="muted">1200×630 or larger works best</small>
+          </div>
+          <input type="file" id="cover-file" accept="image/*" hidden />
+        </div>
+        <div class="cover-actions" id="cover-actions" hidden>
+          <button class="b sm" type="button" id="cover-change">Replace</button>
+          <button class="b sm danger" type="button" id="cover-remove">Remove</button>
+        </div>
+        <label class="field" style="margin:14px 0 0">
+          <span>Alt text <small>Describe the image</small></span>
+          <input id="coverAlt" placeholder="Ali recording a video at his desk" maxlength="200" />
+        </label>
+        <details class="url-in">
+          <summary class="muted">Use an image URL instead</summary>
+          <input class="input" id="coverImage" placeholder="https://… or /media/…" />
+        </details>
+      </section>
+
+      <section class="panel" id="seo">
+        <div class="panel-head">
+          <h2>SEO</h2>
+          <span class="score" id="seo-score">0</span>
+        </div>
+        <label class="field">
+          <span>Focus keyword</span>
+          <input id="focusKeyword" placeholder="e.g. ai automation for beginners" maxlength="80" />
+        </label>
+        <label class="field">
+          <span>Meta title <span class="count" data-for="metaTitle" data-min="30" data-max="60"></span></span>
+          <input id="metaTitle" placeholder="Defaults to the post title" maxlength="120" />
+        </label>
+        <label class="field">
+          <span>Meta description <span class="count" data-for="metaDescription" data-min="120" data-max="160"></span></span>
+          <textarea id="metaDescription" rows="3" placeholder="Defaults to the excerpt" maxlength="320"></textarea>
+        </label>
+
+        <p class="label" style="margin:4px 0 8px">Google preview</p>
+        <div class="serp">
+          <div class="serp-site">
+            <span class="serp-fav">{site.name[0]}</span>
+            <div><b>{site.name}</b><span id="serp-url">{host} › blog</span></div>
+          </div>
+          <div class="serp-title" id="serp-title">Post title</div>
+          <div class="serp-desc" id="serp-desc">Your meta description shows here.</div>
+        </div>
+
+        <ul class="checks" id="checks"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Social sharing</h2>
+        <div class="share-card">
+          <div class="share-img" id="share-img"><span>No image</span></div>
+          <div class="share-body">
+            <small class="muted">{host}</small>
+            <b id="share-title">Post title</b>
+            <span id="share-desc" class="muted"></span>
+          </div>
+        </div>
+        <label class="field">
+          <span>Social title <small>Optional</small></span>
+          <input id="ogTitle" placeholder="Defaults to the meta title" maxlength="120" />
+        </label>
+        <label class="field">
+          <span>Social description <small>Optional</small></span>
+          <textarea id="ogDescription" rows="2" placeholder="Defaults to the meta description" maxlength="320"></textarea>
+        </label>
+        <label class="field" style="margin-bottom:0">
+          <span>Social image <small>Defaults to the cover</small></span>
+          <div style="display:flex;gap:8px">
+            <input id="ogImage" class="input" placeholder="https://… or /media/…" />
+            <button class="b sm" type="button" id="og-upload" style="height:auto">Upload</button>
+            <input type="file" id="og-file" accept="image/*" hidden />
+          </div>
+        </label>
+      </section>
+
+      <section class="panel">
+        <h2>Advanced</h2>
+        <label class="field">
+          <span>Canonical URL <small>Only if first published elsewhere</small></span>
+          <input id="canonicalUrl" placeholder="https://…" />
+        </label>
+        <label class="switch">
+          <input type="checkbox" id="noindex" />
+          Hide from search engines
+        </label>
+        <div class="danger-row" id="danger-row" hidden>
+          <button class="b sm" type="button" id="unpublish" hidden>Unpublish</button>
+          <button class="b sm" type="button" id="duplicate">Duplicate</button>
+          <button class="b sm danger" type="button" id="trash">Move to trash</button>
+        </div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script type="application/json" id="post-data" set:html={data} />
+
+<script>
+  import { adminUrl, api, confirmDialog, timeAgo, toast, uploadImage } from '../../scripts/admin';
+
+  type Post = Record<string, any>;
+  const $ = <T extends HTMLElement = HTMLInputElement>(id: string) => document.getElementById(id) as T;
+
+  let post: Post | null = JSON.parse($('post-data').textContent || 'null');
+  let dirty = false;
+  let saving = false;
+  let slugTouched = Boolean(post);
+  let lastSaved = post ? Date.now() : 0;
+
+  const fields = ['title', 'slug', 'excerpt', 'content', 'coverImage', 'coverAlt', 'focusKeyword', 'metaTitle', 'metaDescription', 'ogTitle', 'ogDescription', 'ogImage', 'canonicalUrl'];
+  const title = $<HTMLTextAreaElement>('title');
+  const content = $<HTMLTextAreaElement>('content');
+  const slug = $('slug');
+  const host = document.querySelector<HTMLElement>('.editor')!.dataset.host;
+
+  // ---------- Load ----------
+  const toLocal = (ms: number) => {
+    const d = new Date(ms);
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  };
+  if (post) {
+    for (const f of fields) $(f).value = post[f] ?? '';
+    $('tags').value = (post.tags ?? []).join(', ');
+    $('noindex').checked = Boolean(post.noindex);
+    if (post.publishedAt) $('publishedAt').value = toLocal(post.publishedAt);
+  }
+
+  // ---------- Collect ----------
+  const slugify = (s: string) =>
+    s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/['’]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+
+  function collect(): Post {
+    const out: Post = {};
+    for (const f of fields) out[f] = $(f).value.trim() || (f === 'content' || f === 'excerpt' ? '' : null);
+    out.content = content.value;
+    out.title = title.value.trim();
+    out.tags = $('tags').value.split(',').map((t) => t.trim()).filter(Boolean);
+    out.noindex = $('noindex').checked;
+    const d = $('publishedAt').value;
+    out.publishedAt = d ? new Date(d).toISOString() : null;
+    if (!out.slug) out.slug = slugify(out.title);
+    return out;
+  }
+
+  // ---------- State + buttons ----------
+  function currentState() {
+    if (!post) return 'draft';
+    if (post.deletedAt) return 'trash';
+    if (post.status === 'published') return post.publishedAt > Date.now() ? 'scheduled' : 'published';
+    return 'draft';
+  }
+
+  function refreshButtons() {
+    const st = currentState();
+    const stateEl = $('state');
+    stateEl.textContent = st;
+    stateEl.className = `badge ${st}`;
+    const d = $('publishedAt').value;
+    const future = d && new Date(d).getTime() > Date.now();
+    const live = st === 'published' || st === 'scheduled';
+    $('publish').textContent = live ? (future ? 'Update schedule' : 'Update') : future ? 'Schedule' : 'Publish';
+    $('save').hidden = live;
+    $('unpublish').hidden = !live;
+    $('danger-row').hidden = !post;
+    $('view-live').hidden = st !== 'published';
+    if (post) ($('view-live') as unknown as HTMLAnchorElement).href = `/blog/${post.slug}/`;
+    $('date-hint').textContent = future ? 'Scheduled: goes live at this time' : 'Leave empty to use the moment you publish';
+  }
+
+  function showSaveState() {
+    const el = $('savestate');
+    if (saving) el.textContent = 'Saving…';
+    else if (dirty) el.textContent = currentState() === 'draft' ? 'Unsaved changes' : 'Unsaved changes — press Update to go live';
+    else if (lastSaved) el.textContent = `Saved ${timeAgo(lastSaved)}`;
+  }
+  setInterval(showSaveState, 30_000);
+
+  // ---------- Save ----------
+  async function save(extra: Post = {}, quiet = false) {
+    const data = { ...collect(), ...extra };
+    if (!data.title) {
+      if (!quiet) {
+        toast('Give your post a title first.', true);
+        title.focus();
+      }
+      return false;
+    }
+    saving = true;
+    showSaveState();
+    try {
+      const res = post ? await api(`/api/admin/posts/${post.id}`, 'PATCH', data) : await api('/api/admin/posts', 'POST', data);
+      const wasNew = !post;
+      post = res.post;
+      slug.value = post!.slug;
+      if (post!.publishedAt) $('publishedAt').value = toLocal(post!.publishedAt);
+      if (wasNew) history.replaceState(null, '', adminUrl(`/posts/${post!.id}/`));
+      dirty = false;
+      lastSaved = Date.now();
+      if (!quiet) toast(extra.status === 'published' ? (currentState() === 'scheduled' ? 'Scheduled' : 'Published') : 'Saved');
+      return true;
+    } catch (e) {
+      toast((e as Error).message, true);
+      return false;
+    } finally {
+      saving = false;
+      refreshButtons();
+      showSaveState();
+    }
+  }
+
+  $('save').addEventListener('click', () => save({ status: 'draft' }));
+  $('publish').addEventListener('click', async () => {
+    const st = currentState();
+    if (st === 'draft') {
+      const d = $('publishedAt').value;
+      const future = d && new Date(d).getTime() > Date.now();
+      const ok = await confirmDialog(future ? `Schedule this post for ${new Date(d).toLocaleString()}?` : 'Publish this post now? It will be live on your site.', future ? 'Schedule' : 'Publish', false);
+      if (!ok) return;
+    }
+    const saved = await save({ status: 'published' });
+    if (saved && st === 'draft' && currentState() === 'published') {
+      toast('Published — it is live now');
+    }
+  });
+  $('unpublish').addEventListener('click', async () => {
+    if (await confirmDialog('Take this post off the site and turn it back into a draft?', 'Unpublish')) save({ status: 'draft' });
+  });
+  $('duplicate').addEventListener('click', async () => {
+    if (!post) return;
+    try {
+      const { post: copy } = await api(`/api/admin/posts/${post.id}`, 'POST', { action: 'duplicate' });
+      location.href = adminUrl(`/posts/${copy.id}/`);
+    } catch (e) {
+      toast((e as Error).message, true);
+    }
+  });
+  $('trash').addEventListener('click', async () => {
+    if (!post || !(await confirmDialog('Move this post to the trash? You can restore it from Posts → Trash.', 'Move to trash'))) return;
+    await api(`/api/admin/posts/${post.id}`, 'DELETE');
+    dirty = false;
+    location.href = adminUrl('/posts/?state=trash');
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      save(currentState() === 'draft' ? { status: 'draft' } : {});
+    }
+  });
+  window.addEventListener('beforeunload', (e) => {
+    if (dirty) e.preventDefault();
+  });
+
+  // Drafts save themselves a few seconds after you stop typing. Live posts never do.
+  let autosaveTimer = 0;
+  function changed() {
+    dirty = true;
+    showSaveState();
+    schedulePreview();
+    clearTimeout(autosaveTimer);
+    if (currentState() === 'draft' && title.value.trim()) autosaveTimer = window.setTimeout(() => dirty && save({}, true), 4000);
+  }
+  document.querySelectorAll('.editor input, .editor textarea').forEach((el) => {
+    if ((el as HTMLInputElement).type !== 'file') el.addEventListener('input', changed);
+  });
+  $('publishedAt').addEventListener('input', refreshButtons);
+
+  // ---------- Title + slug ----------
+  const grow = (el: HTMLTextAreaElement) => {
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  };
+  title.addEventListener('input', () => {
+    grow(title);
+    if (!slugTouched) slug.value = slugify(title.value);
+  });
+  title.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      content.focus();
+    }
+  });
+  slug.addEventListener('input', () => (slugTouched = true));
+  slug.addEventListener('blur', () => (slug.value = slugify(slug.value)));
+  requestAnimationFrame(() => grow(title));
+
+  // ---------- Markdown toolbar ----------
+  function wrap(before: string, after = before, placeholder = '') {
+    const { selectionStart: s, selectionEnd: e, value } = content;
+    const sel = value.slice(s, e) || placeholder;
+    content.setRangeText(before + sel + after, s, e, 'end');
+    if (!value.slice(s, e)) content.setSelectionRange(s + before.length, s + before.length + sel.length);
+    content.focus();
+    changed();
+  }
+  function linePrefix(prefix: string | ((i: number) => string)) {
+    const { selectionStart: s, selectionEnd: e, value } = content;
+    const start = value.lastIndexOf('\n', s - 1) + 1;
+    const end = value.indexOf('\n', e) === -1 ? value.length : value.indexOf('\n', e);
+    const lines = value.slice(start, end).split('\n');
+    const out = lines.map((l, i) => (typeof prefix === 'function' ? prefix(i) : prefix) + l.replace(/^(#{1,6}\s|>\s|-\s|\d+\.\s)/, '')).join('\n');
+    content.setRangeText(out, start, end, 'end');
+    content.focus();
+    changed();
+  }
+  function insertBlock(text: string) {
+    const { selectionStart: s, value } = content;
+    const pre = s > 0 && value[s - 1] !== '\n' ? '\n\n' : '';
+    content.setRangeText(`${pre}${text}\n\n`, s, content.selectionEnd, 'end');
+    content.focus();
+    changed();
+  }
+
+  const fileInput = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
+  async function insertImages(files: FileList | File[]) {
+    for (const f of Array.from(files)) {
+      if (!f.type.startsWith('image/')) continue;
+      const marker = `![Uploading ${f.name}…]()`;
+      insertBlock(marker);
+      try {
+        const m = await uploadImage(f);
+        content.value = content.value.replace(marker, `![${f.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ')}](${m.url})`);
+      } catch (e) {
+        content.value = content.value.replace(marker + '\n\n', '');
+        toast((e as Error).message, true);
+      }
+      changed();
+    }
+  }
+  fileInput.addEventListener('change', () => fileInput.files && insertImages(fileInput.files));
+
+  const actions: Record<string, () => void> = {
+    h2: () => linePrefix('## '),
+    h3: () => linePrefix('### '),
+    bold: () => wrap('**', '**', 'bold text'),
+    italic: () => wrap('_', '_', 'italic text'),
+    link: () => {
+      const url = prompt('Link URL', 'https://');
+      if (url) wrap('[', `](${url})`, 'link text');
+    },
+    quote: () => linePrefix('> '),
+    ul: () => linePrefix('- '),
+    ol: () => linePrefix((i) => `${i + 1}. `),
+    code: () => {
+      const sel = content.value.slice(content.selectionStart, content.selectionEnd);
+      sel.includes('\n') || !sel ? wrap('```\n', '\n```', 'code') : wrap('`');
+    },
+    image: () => fileInput.click(),
+    youtube: () => {
+      const url = prompt('YouTube video URL');
+      if (url) insertBlock(url.trim());
+    },
+  };
+  document.querySelectorAll<HTMLButtonElement>('[data-md]').forEach((b) => b.addEventListener('click', () => actions[b.dataset.md!]()));
+  content.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const k = e.key.toLowerCase();
+    if (k === 'b' || k === 'i' || k === 'k') {
+      e.preventDefault();
+      actions[{ b: 'bold', i: 'italic', k: 'link' }[k]!]();
+    }
+  });
+  content.addEventListener('paste', (e) => {
+    const files = e.clipboardData?.files;
+    if (files?.length) {
+      e.preventDefault();
+      insertImages(files);
+    }
+  });
+  content.addEventListener('dragover', (e) => e.preventDefault());
+  content.addEventListener('drop', (e) => {
+    if (e.dataTransfer?.files.length) {
+      e.preventDefault();
+      insertImages(e.dataTransfer.files);
+    }
+  });
+
+  // ---------- Write / preview ----------
+  const preview = $('preview');
+  let mode = 'write';
+  document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((b) =>
+    b.addEventListener('click', () => {
+      mode = b.dataset.mode!;
+      document.querySelectorAll('[data-mode]').forEach((o) => o.setAttribute('aria-selected', String(o === b)));
+      content.hidden = mode !== 'write';
+      preview.hidden = mode !== 'preview';
+      document.querySelector('.tools')!.classList.toggle('off', mode !== 'write');
+      if (mode === 'preview') runPreview();
+    }),
+  );
+
+  // ---------- Live SEO + preview ----------
+  const counters = document.querySelectorAll<HTMLElement>('.count');
+  const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+  function refreshSeoFields() {
+    const d = collect();
+    const metaTitle = d.metaTitle || d.title || 'Post title';
+    const metaDesc = d.metaDescription || d.excerpt || '';
+    counters.forEach((c) => {
+      const f = c.dataset.for!;
+      const fallback = f === 'metaTitle' ? d.title : d.excerpt;
+      const n = ($(f).value || fallback || '').length;
+      c.textContent = String(n);
+      c.className = `count ${n >= Number(c.dataset.min) && n <= Number(c.dataset.max) ? 'good' : n > Number(c.dataset.max) ? 'over' : ''}`;
+    });
+    $('serp-title').textContent = metaTitle.length > 60 ? metaTitle.slice(0, 58) + '…' : metaTitle;
+    $('serp-desc').textContent = metaDesc ? (metaDesc.length > 160 ? metaDesc.slice(0, 157) + '…' : metaDesc) : 'Add a meta description so Google shows your words, not a random sentence.';
+    $('serp-url').textContent = `${host} › blog › ${d.slug || '…'}`;
+    $('share-title').textContent = d.ogTitle || metaTitle;
+    $('share-desc').textContent = d.ogDescription || metaDesc;
+    const img = d.ogImage || d.coverImage;
+    $('share-img').innerHTML = img ? `<img src="${esc(img)}" alt="">` : '<span>No image — add a cover</span>';
+  }
+
+  let previewTimer = 0;
+  function schedulePreview() {
+    refreshSeoFields();
+    clearTimeout(previewTimer);
+    previewTimer = window.setTimeout(runPreview, 700);
+  }
+  async function runPreview() {
+    try {
+      const d = collect();
+      const res = await api('/api/admin/preview', 'POST', d);
+      if (mode === 'preview') preview.innerHTML = (d.title ? `<h1>${esc(d.title)}</h1>` : '') + res.html;
+      $('words').textContent = `${res.words.toLocaleString()} words`;
+      $('minutes').textContent = `${res.minutes} min read`;
+      const score = $('seo-score');
+      score.textContent = res.seo.score;
+      score.className = `score ${res.seo.score >= 80 ? 'high' : res.seo.score >= 60 ? 'mid' : ''}`;
+      $('checks').innerHTML = res.seo.checks
+        .sort((a: any, b: any) => Number(a.ok) - Number(b.ok))
+        .map((c: any) => `<li class="${c.ok ? 'ok' : 'no'}"><span>${esc(c.label)}${!c.ok && c.tip ? `<small>${esc(c.tip)}</small>` : ''}</span></li>`)
+        .join('');
+    } catch {}
+  }
+
+  // ---------- Cover + social image ----------
+  const coverInput = $('coverImage');
+  function showCover() {
+    const url = coverInput.value.trim();
+    const img = $<HTMLImageElement>('cover-img');
+    img.hidden = !url;
+    if (url) img.src = url;
+    $('cover-empty').hidden = Boolean(url);
+    $('cover-actions').hidden = !url;
+    refreshSeoFields();
+  }
+  async function setCover(file: File) {
+    $('cover-empty').querySelector('span')!.textContent = 'Uploading…';
+    try {
+      const m = await uploadImage(file, $('coverAlt').value);
+      coverInput.value = m.url;
+      showCover();
+      changed();
+    } catch (e) {
+      toast((e as Error).message, true);
+    } finally {
+      $('cover-empty').querySelector('span')!.innerHTML = 'Drop an image or <u>browse</u>';
+    }
+  }
+  const coverFile = $('cover-file');
+  const drop = $('cover-drop');
+  drop.addEventListener('click', () => !coverInput.value && coverFile.click());
+  $('cover-change').addEventListener('click', () => coverFile.click());
+  $('cover-remove').addEventListener('click', () => {
+    coverInput.value = '';
+    showCover();
+    changed();
+  });
+  coverFile.addEventListener('change', () => coverFile.files?.[0] && setCover(coverFile.files[0]));
+  drop.addEventListener('dragover', (e) => (e.preventDefault(), drop.classList.add('over')));
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', (e) => {
+    e.preventDefault();
+    drop.classList.remove('over');
+    const f = e.dataTransfer?.files[0];
+    if (f) setCover(f);
+  });
+  coverInput.addEventListener('input', showCover);
+
+  const ogFile = $('og-file');
+  $('og-upload').addEventListener('click', () => ogFile.click());
+  ogFile.addEventListener('change', async () => {
+    const f = ogFile.files?.[0];
+    if (!f) return;
+    try {
+      $('ogImage').value = (await uploadImage(f)).url;
+      changed();
+    } catch (e) {
+      toast((e as Error).message, true);
+    }
+  });
+
+  // ---------- Go ----------
+  showCover();
+  refreshButtons();
+  refreshSeoFields();
+  runPreview();
+  if (!post) title.focus();
+  if (location.hash === '#seo') $('seo').scrollIntoView({ behavior: 'smooth' });
+</script>
+
+<style>
+  /* Layout, writer and sidebar styles are shared with the other editors, in styles/admin.css. */
+  .serp {
+    background: var(--field);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px;
+    font-family: Arial, sans-serif;
+    margin-bottom: 16px;
+  }
+  .serp-site {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    font-size: 0.75rem;
+    margin-bottom: 6px;
+  }
+  .serp-site div {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.3;
+    min-width: 0;
+  }
+  .serp-site span:not(.serp-fav) {
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .serp-fav {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--bg-soft);
+    display: grid;
+    place-items: center;
+    font-family: var(--serif);
+    flex: none;
+  }
+  .serp-title {
+    color: #8ab4f8;
+    font-size: 1.1rem;
+    line-height: 1.3;
+    margin-bottom: 4px;
+  }
+  :global([data-theme='light']) .serp-title {
+    color: #1a0dab;
+  }
+  .serp-desc {
+    font-size: 0.82rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .checks {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 0.83rem;
+  }
+  .checks :global(li) {
+    display: flex;
+    gap: 10px;
+    padding: 6px 0;
+    border-top: 1px solid var(--line);
+  }
+  .checks :global(li::before) {
+    content: '';
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-top: 6px;
+    background: var(--bad);
+  }
+  .checks :global(li.ok::before) {
+    background: var(--ok);
+  }
+  .checks :global(li.ok) {
+    color: var(--muted);
+  }
+  .checks :global(small) {
+    display: block;
+    color: var(--muted);
+    font-size: 0.76rem;
+  }
+
+  .share-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 16px;
+    background: var(--field);
+  }
+  .share-img {
+    aspect-ratio: 1200 / 630;
+    background: var(--bg-soft);
+    display: grid;
+    place-items: center;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .share-img :global(img) {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .share-body {
+    padding: 10px 12px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 0.85rem;
+    line-height: 1.35;
+  }
+  .share-body span {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 0.8rem;
+  }
+</style>
